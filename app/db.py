@@ -7,6 +7,9 @@ _url = get_settings().database_url
 engine = create_engine(
     _url,
     connect_args={"check_same_thread": False} if _url.startswith("sqlite") else {},
+    # MySQL 은 오래 쉰 연결을 끊음(wait_timeout) → 사용 전 확인 + 1시간마다 새 연결
+    pool_pre_ping=True,
+    pool_recycle=3600,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

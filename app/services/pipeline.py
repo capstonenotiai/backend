@@ -33,6 +33,9 @@ def import_records(db: Session, records: Iterable[dict]) -> Counter:
         site = record.get("site")
         if not url or not site or url in seen:
             continue
+        if len(url) > 700:  # models.Notice.source_url 길이 제한
+            log.warning("URL 이 너무 길어 건너뜀: %s...", url[:80])
+            continue
         seen.add(url)
         db.add(
             Notice(

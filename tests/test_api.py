@@ -35,6 +35,26 @@ def test_register_and_unregister(client):
     assert client.delete(f"/api/calendar/register/{event['id']}").json()["registered"] is False
 
 
+def test_login_without_google_config_redirects_in_dev(client):
+    response = client.get("/api/auth/google/login", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("/dashboard")
+
+
+def test_bookmark_preflight_allows_frontend_origin(client):
+    response = client.options(
+        "/api/events/1/bookmark",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
 def test_register_unknown_event_returns_message(client):
     response = client.post("/api/calendar/register", json={"event_id": "nope"})
     assert response.status_code == 404

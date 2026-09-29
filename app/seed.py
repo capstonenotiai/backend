@@ -9,8 +9,8 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.deps import DEV_USER_EMAIL
-from app.models import Event, User, UserEvent
+from app.deps import get_or_create_dev_user
+from app.models import Event, UserEvent
 from app.timeutil import today_local
 
 MOCK_TODAY = date(2026, 5, 19)
@@ -72,11 +72,7 @@ def seed(db: Session) -> int:
         return 0
 
     delta = today_local() - MOCK_TODAY
-    user = db.scalar(select(User).where(User.email == DEV_USER_EMAIL))
-    if not user:
-        user = User(email=DEV_USER_EMAIL, name="개발용 사용자")
-        db.add(user)
-        db.flush()
+    user = get_or_create_dev_user(db)
 
     for item in MOCK_EVENTS:
         collected = date.fromisoformat(item["collected_at"]) + delta

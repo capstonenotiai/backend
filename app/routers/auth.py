@@ -24,7 +24,11 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.get("/google/login")
 def google_login(request: Request):
+    settings = get_settings()
     if not google.is_configured():
+        # 개발 모드: Google 설정 전에도 로그인 버튼 → 대시보드 흐름을 확인할 수 있게 (개발용 사용자로 동작)
+        if settings.dev_login:
+            return RedirectResponse(f"{settings.frontend_url.rstrip('/')}/dashboard")
         raise HTTPException(status_code=500, detail="Google 로그인 설정이 완료되지 않았습니다.")
     state = secrets.token_urlsafe(24)
     request.session["oauth_state"] = state

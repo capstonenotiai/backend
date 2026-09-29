@@ -1,4 +1,7 @@
-"""환경변수 설정 (.env.example 참고)"""
+"""
+환경변수 설정 — backend/.env 에 필드 이름을 대문자로 적는다. (예: database_url → DATABASE_URL)
+.env 에 없는 값은 아래 기본값을 쓴다. .env 는 git 에 올리지 않고 팀 내부에서 직접 전달.
+"""
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
@@ -8,26 +11,36 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # DB. 예: mysql+pymysql://notiai:notiai@localhost:3307/notiai?charset=utf8mb4 (없으면 SQLite 파일)
     database_url: str = "sqlite:///./notiai.db"
+    # 세션 쿠키 서명 키 — 배포 시 반드시 긴 랜덤 문자열
     session_secret: str = "change-me"
+    # 프론트 주소 (CORS 허용, 쉼표 구분) / 로그인 후 돌아갈 주소
     cors_origins: str = "http://localhost:5173,https://notiai.pages.dev"
     frontend_url: str = "http://localhost:5173"
+    # true: 로그인 안 한 요청도 '개발용 사용자'로 처리 (배포 시 false)
     dev_login: bool = True
+    # 프론트/백엔드 도메인이 다른 https 배포에서 true (SameSite=None; Secure)
     cookie_secure: bool = False
 
+    # Google OAuth (Google Cloud Console → OAuth 클라이언트)
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
 
+    # OpenAI — AI 플래너 + EXTRACTOR=gpt
     openai_api_key: str = ""
     openai_model: str = "gpt-6-luna"
     openai_max_output_tokens: int = 800
 
+    # 일정 추출기: stub | gpt | model_api (app/services/extractor.py)
     extractor: str = "stub"
     extract_model: str = "gpt-4o-mini"
     model_api_url: str = ""
+    # capstonenotiai/model repo 로컬 경로 (크롤러 실행, SYSTEM_PROMPT/postprocess 재사용)
     model_repo_path: str = ""
 
+    # 정기 수집
     crawl_enabled: bool = False
     crawl_cron: str = "0 9 * * *"
     crawl_max_pages: int = 2

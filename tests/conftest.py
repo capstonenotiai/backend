@@ -4,8 +4,9 @@ import tempfile
 import pytest
 
 # app 을 import 하기 전에 테스트용 설정 (엔진이 import 시점에 만들어짐)
+# 기본은 임시 SQLite. MySQL 로 돌리려면 TEST_DATABASE_URL 지정 (⚠️ 테이블을 지우고 다시 만듦 — 테스트 전용 DB 사용)
 _tmp = tempfile.mkdtemp()
-os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_tmp, 'test.db')}"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{os.path.join(_tmp, 'test.db')}"
 os.environ["DEV_LOGIN"] = "true"
 os.environ["EXTRACTOR"] = "stub"
 os.environ["OPENAI_API_KEY"] = ""

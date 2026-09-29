@@ -51,7 +51,8 @@ class Notice(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     site: Mapped[str] = mapped_column(String(32), index=True)  # cbnu | wevity | contestkorea
     board: Mapped[str | None] = mapped_column(String(32))  # cbnu: sw_notice | scholarship | employment
-    source_url: Mapped[str] = mapped_column(String(1000), unique=True)
+    # MySQL(utf8mb4) 은 unique 인덱스가 3072 byte(=768자) 까지라 700 으로 제한
+    source_url: Mapped[str] = mapped_column(String(700), unique=True)
     title_raw: Mapped[str] = mapped_column(Text)
     raw_text: Mapped[str] = mapped_column(Text, default="")
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

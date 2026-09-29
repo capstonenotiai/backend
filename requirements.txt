@@ -8,5 +8,9 @@ openai>=1.50
 apscheduler>=3.10,<4
 tzdata
 
+# MySQL 드라이버 (cryptography: MySQL 8 기본 인증 방식 caching_sha2_password 에 필요)
+pymysql>=1.1
+cryptography>=42
+
 # 테스트
 pytest>=8

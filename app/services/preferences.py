@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Preference, User
@@ -6,9 +7,11 @@ from app.schemas import AI_MODE_IDS, DEFAULT_AI_MODE, Preferences
 
 def get_or_create_preference(db: Session, user: User) -> Preference:
     pref = db.get(Preference, user.id)
-    if not pref:
-        defaults = Preferences()
-        pref = Preference(
+    if pref:
+        return pref
+    defaults = Preferences()
+    db.add(
+        Preference(
             user_id=user.id,
             ai_mode=defaults.ai_mode,
             interests=defaults.interests,
@@ -16,9 +19,13 @@ def get_or_create_preference(db: Session, user: User) -> Preference:
             notifications=defaults.notifications.model_dump(),
             auto_mode_recommend=defaults.auto_mode_recommend,
         )
-        db.add(pref)
+    )
+    try:
         db.commit()
-    return pref
+    except IntegrityError:
+        # 첫 화면에서 여러 요청이 동시에 만들려고 한 경우 — 먼저 만든 것을 사용
+        db.rollback()
+    return db.get(Preference, user.id)
 
 
 def to_schema(pref: Preference) -> Preferences:

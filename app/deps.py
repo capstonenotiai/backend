@@ -1,5 +1,6 @@
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -7,6 +8,20 @@ from app.db import get_db
 from app.models import User
 
 DEV_USER_EMAIL = "dev@notiai.local"
+# google_sub 는 unique → 동시 요청이 개발용 사용자를 두 번 만들지 못하게 막는 용도
+DEV_USER_SUB = "dev-user"
+
+
+def get_or_create_dev_user(db: Session) -> User:
+    user = db.scalar(select(User).where(User.google_sub == DEV_USER_SUB))
+    if user:
+        return user
+    db.add(User(google_sub=DEV_USER_SUB, email=DEV_USER_EMAIL, name="개발용 사용자"))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return db.scalar(select(User).where(User.google_sub == DEV_USER_SUB))
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -22,11 +37,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         request.session.clear()
 
     if get_settings().dev_login:
-        user = db.scalar(select(User).where(User.email == DEV_USER_EMAIL))
-        if not user:
-            user = User(email=DEV_USER_EMAIL, name="개발용 사용자")
-            db.add(user)
-            db.commit()
-        return user
+        return get_or_create_dev_user(db)
 
     raise HTTPException(status_code=401, detail="로그인이 필요합니다.")

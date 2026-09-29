@@ -15,7 +15,7 @@
 | 구분 | 사용 |
 |---|---|
 | 서버 | FastAPI (Python 3.12) |
-| DB | SQLAlchemy 2 — 로컬은 SQLite, 배포는 PostgreSQL 권장 (`DATABASE_URL` 만 변경) |
+| DB | MySQL 8.4 (Docker) + SQLAlchemy 2 / PyMySQL. `DATABASE_URL` 이 없으면 SQLite 파일로 동작 |
 | 인증 | Google OAuth 2.0 + 서명 세션 쿠키 |
 | 캘린더 | Google Calendar API (REST) |
 | 수집 | APScheduler + model repo `crawler/runner.py` |
@@ -29,12 +29,43 @@
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env
 
 python -m app.cli seed               # 데모 일정 6건 (프론트 mock 과 동일, 오늘 날짜 기준으로 이동)
 uvicorn app.main:app --reload        # http://localhost:8000/docs 에서 API 확인
 pytest                               # 테스트
 ```
+
+### Docker (MySQL)
+
+```powershell
+docker compose up -d db              # MySQL 만 (localhost:3307) → 백엔드는 위처럼 uvicorn 으로 실행
+docker compose up -d --build         # MySQL + 백엔드 컨테이너 (localhost:8000)
+docker compose exec api python -m app.cli seed
+docker compose down                  # 중지 (데이터는 볼륨에 남음, 완전히 지우려면 down -v)
+```
+
+- `.env` 의 `DATABASE_URL=mysql+pymysql://notiai:notiai@localhost:3307/notiai?charset=utf8mb4` (로컬 uvicorn 용). 컨테이너는 compose 가 `db:3306` 으로 덮어씀
+- PC 에 설치된 MySQL 이 3306 을 쓰고 있어서 Docker MySQL 은 3307
+- 테이블은 서버 시작 시 자동 생성(`create_all`). 단, **이미 있는 테이블의 컬럼 변경은 반영되지 않음** → 모델을 바꾸면 개발 중에는 `docker compose down -v` 후 다시 seed, 운영 단계에서는 Alembic 도입
+- MySQL 로 테스트: `docker exec notiai-mysql mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS notiai_test; GRANT ALL ON notiai_test.* TO 'notiai'@'%';"` 후
+  `$env:TEST_DATABASE_URL="mysql+pymysql://notiai:notiai@localhost:3307/notiai_test?charset=utf8mb4"; pytest`
+
+### 환경변수 (`.env`)
+
+| 이름 | 예시 / 기본값 | 설명 |
+|---|---|---|
+| `DATABASE_URL` | `mysql+pymysql://notiai:notiai@localhost:3307/notiai?charset=utf8mb4` | 없으면 SQLite 파일 |
+| `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_ROOT_PASSWORD` / `MYSQL_PORT` | `notiai` / `notiai` / `notiai` / `root` / `3307` | docker-compose MySQL 설정 (바꾸면 `DATABASE_URL` 도 같이) |
+| `SESSION_SECRET` | 긴 랜덤 문자열 | 세션 쿠키 서명 키 |
+| `DEV_LOGIN` | `true` | 로그인 안 한 요청도 개발용 사용자로 처리 (배포 시 `false`) |
+| `FRONTEND_URL` / `CORS_ORIGINS` | `http://localhost:5173` | 프론트 주소 |
+| `COOKIE_SECURE` | `false` | 도메인이 다른 https 배포에서 `true` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | | Google OAuth |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | | AI 플래너, `EXTRACTOR=gpt` |
+| `EXTRACTOR` / `MODEL_API_URL` / `MODEL_REPO_PATH` | `stub` | 일정 추출기 |
+| `CRAWL_ENABLED` / `CRAWL_CRON` / `CRAWL_MAX_PAGES` | `false` / `0 9 * * *` / `2` | 정기 수집 |
+
+전체 목록과 기본값은 `app/config.py`.
 
 프론트 연결: 프론트 `.env.local` 에 `VITE_USE_MOCK=false`, `VITE_API_BASE_URL=http://localhost:8000`
 
