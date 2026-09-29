@@ -37,10 +37,10 @@ class Settings(BaseSettings):
     extractor: str = "stub"
     extract_model: str = "gpt-4o-mini"
     model_api_url: str = ""
-    # capstonenotiai/model repo 로컬 경로 (크롤러 실행, SYSTEM_PROMPT/postprocess 재사용)
+    # capstonenotiai/model repo 로컬 경로 — EXTRACTOR=gpt 일 때 SYSTEM_PROMPT/postprocess 재사용 (크롤러와는 무관)
     model_repo_path: str = ""
 
-    # 정기 수집
+    # 정기 수집 (crawler/runner.py). crawl_max_pages: 사이트당 목록 페이지 수 (Wevity 는 x20 건)
     crawl_enabled: bool = False
     crawl_cron: str = "0 9 * * *"
     crawl_max_pages: int = 2

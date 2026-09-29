@@ -3,10 +3,10 @@
 > 다중 프롬프트 기반 AI 대학생 일정 자동 생성 시스템 · 충북대학교 소프트웨어학부 졸업작품
 
 - 프론트엔드: [jaeyeongt/NotiAi](https://github.com/jaeyeongt/NotiAi) — API 계약은 프론트 `src/services/*.js` 기준
-- 모델 · 크롤러: [capstonenotiai/model](https://github.com/capstonenotiai/model)
+- 모델: [capstonenotiai/model](https://github.com/capstonenotiai/model) · 크롤러는 이 repo 의 `crawler/` (model repo 에서 옮겨 옴)
 
 ```
-[스케줄러] model repo 크롤러 → notices(원문) → Extractor(모델) → events
+[스케줄러] crawler/ → notices(원문) → Extractor(모델) → events
 [React] ──쿠키 세션──▶ [FastAPI] ── DB / Google Calendar / OpenAI(AI 플래너)
 ```
 
@@ -18,7 +18,7 @@
 | DB | MySQL 8.4 (Docker) + SQLAlchemy 2 / PyMySQL. `DATABASE_URL` 이 없으면 SQLite 파일로 동작 |
 | 인증 | Google OAuth 2.0 + 서명 세션 쿠키 |
 | 캘린더 | Google Calendar API (REST) |
-| 수집 | APScheduler + model repo `crawler/runner.py` |
+| 수집 | APScheduler + `crawler/runner.py` (requests · BeautifulSoup · curl_cffi) |
 | AI 플래너 | OpenAI Responses API (프론트 `functions/` 에서 이전) |
 
 크롤러·모델이 Python 이라 같은 언어로 import 해서 재사용하려고 FastAPI 를 선택했습니다.
@@ -107,11 +107,13 @@ docker compose down                  # 중지 (데이터는 볼륨에 남음, �
 ```powershell
 python -m app.cli import path\to\crawled_all.jsonl   # 크롤 결과 파일 → notices (source_url 중복 제외)
 python -m app.cli extract --limit 20                 # 미추출 notices → events
-python -m app.cli collect                            # 크롤러 실행 + import + extract (MODEL_REPO_PATH 필요)
+python -m app.cli collect [--site cbnu]              # 크롤러 실행 + import + extract (결과: data/crawled_all.jsonl)
 ```
 
 `CRAWL_ENABLED=true` 면 서버 실행 중 `CRAWL_CRON`(기본 매일 09:00, Asia/Seoul)마다 `collect` 가 실행됩니다.
-`category` 는 모델이 뽑지 않으므로 `app/services/category.py` 규칙(CBNU 게시판 → 분야, 제목 키워드)으로 정합니다.
+`category` 는 모델이 아니라 수집한 게시판(크롤러 레코드의 `board`)으로 정합니다. (`app/services/category.py`)
+CBNU 는 `sw_notice`/`scholarship`/`employment` → 학사/장학/취업, Wevity·ContestKorea 는 기본 공모전이고
+크롤러에 다른 목록을 추가할 때 `board` 에 분야 id(예: `"activity"`)를 넣으면 그대로 사용합니다.
 
 ## 폴더 구조
 

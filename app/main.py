@@ -13,12 +13,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.routers import auth, calendar, dashboard, events, health, planner, users
 from app.scheduler import start_scheduler
+from app.services.pipeline import mark_interrupted_runs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -26,6 +28,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    with SessionLocal() as db:
+        interrupted = mark_interrupted_runs(db)
+    if interrupted:
+        logging.getLogger("notiai").warning("중단된 수집 기록 %d건을 failed 로 정리", interrupted)
     scheduler = start_scheduler()
     yield
     if scheduler:
@@ -34,6 +40,24 @@ async def lifespan(_: FastAPI):
 
 settings = get_settings()
 app = FastAPI(title="NotiAI Backend", version="0.1.0", lifespan=lifespan)
+log = logging.getLogger("notiai")
+
+
+async def catch_unhandled_errors(request: Request, call_next):
+    """
+    예상 못 한 에러도 { message } 로 응답.
+    CORS 보다 먼저(안쪽에) 등록해야 500 응답에도 CORS 헤더가 붙는다.
+    (없으면 브라우저에는 실제 원인 대신 'CORS 에러'로만 보임)
+    """
+    try:
+        return await call_next(request)
+    except Exception:
+        log.exception("Unhandled error: %s %s", request.method, request.url.path)
+        return JSONResponse({"message": "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}, status_code=500)
+
+
+# ⚠️ 미들웨어는 나중에 등록한 것이 바깥쪽 — 이 순서(에러 처리 → CORS → 세션)를 유지할 것
+app.add_middleware(BaseHTTPMiddleware, dispatch=catch_unhandled_errors)
 
 # 프론트는 credentials: 'include' 로 호출 → origin 을 정확히 지정해야 함 ('*' 불가)
 app.add_middleware(

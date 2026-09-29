@@ -1,7 +1,7 @@
 """
 수집 파이프라인: 크롤러 실행 → notices 저장 → 추출 → events 저장.
 
-크롤러는 capstonenotiai/model repo 의 crawler/runner.py 를 그대로 사용한다.
+크롤러는 이 repo 의 crawler/ (capstonenotiai/model repo 에서 옮겨 옴) 를 그대로 사용한다.
 runner 는 data/crawled_all.jsonl 에 누적 저장하므로, 여기서는 source_url 로 중복을 걸러 새 것만 넣는다.
 """
 import json
@@ -90,7 +90,7 @@ def extract_pending(db: Session, extractor: Extractor | None = None, limit: int 
                 end_date=result.end_date,
                 location=result.location,
                 detail=result.detail,
-                category=categorize(notice.site, notice.board, notice.title_raw),
+                category=categorize(notice.site, notice.board),
                 review_status=result.review_status,
                 review_reason=result.review_reason,
                 extractor=extractor.name,
@@ -102,17 +102,47 @@ def extract_pending(db: Session, extractor: Extractor | None = None, limit: int 
     return count
 
 
-def run_crawler(site: str | None = None) -> Path:
-    """model repo 크롤러 실행 후 결과 파일 경로 반환"""
-    settings = get_settings()
-    if not settings.model_repo_path:
-        raise RuntimeError("MODEL_REPO_PATH 가 설정되지 않았습니다.")
-    repo = Path(settings.model_repo_path)
-    command = [sys.executable, "crawler/runner.py", "--max", str(settings.crawl_max_pages)]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+CRAWLED_FILE = BACKEND_ROOT / "data" / "crawled_all.jsonl"
+# crawler/runner.py 가 남기는 사이트별 결과 {site: {status, new, failed_requests, error}}
+SUMMARY_FILE = BACKEND_ROOT / "data" / "last_run.json"
+
+
+def run_crawler(site: str | None = None) -> tuple[int, dict]:
+    """crawler/runner.py 실행. (exit code, 사이트별 결과) 반환 — 실패해도 예외를 던지지 않음"""
+    SUMMARY_FILE.unlink(missing_ok=True)  # 이전 실행 결과를 이번 것으로 착각하지 않도록
+    command = [sys.executable, "crawler/runner.py", "--max", str(get_settings().crawl_max_pages)]
     if site:
         command += ["--site", site]
-    subprocess.run(command, cwd=repo, check=True, timeout=60 * 60)
-    return repo / "data" / "crawled_all.jsonl"
+    returncode = subprocess.run(command, cwd=BACKEND_ROOT, timeout=60 * 60).returncode
+    try:
+        summary = json.loads(SUMMARY_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        summary = {}
+    return returncode, summary
+
+
+def _run_message(result: dict) -> str | None:
+    """사이트 결과 → 수집 기록 message (실패 사유 / 경고)"""
+    parts = []
+    if result.get("error"):
+        parts.append(result["error"])
+    failed = result.get("failed_requests") or []
+    if failed:
+        parts.append(f"요청 실패 {len(failed)}건: " + " / ".join(failed[:3]))
+    return "\n".join(parts) or None
+
+
+def mark_interrupted_runs(db: Session) -> int:
+    """
+    서버 시작 시 호출. 수집 도중 서버가 꺼져 'running' 으로 남은 기록을 실패로 정리
+    (그대로 두면 대시보드에 계속 '수집 중'으로 보임)
+    """
+    runs = db.scalars(select(CrawlRun).where(CrawlRun.status == "running")).all()
+    for run in runs:
+        run.status, run.finished_at, run.message = "failed", utcnow(), "서버 재시작으로 수집이 중단됨"
+    db.commit()
+    return len(runs)
 
 
 def collect(db: Session, site: str | None = None, extractor: Extractor | None = None) -> dict:
@@ -123,17 +153,29 @@ def collect(db: Session, site: str | None = None, extractor: Extractor | None = 
     db.commit()
 
     try:
-        output = run_crawler(site)
-        added = import_records(db, read_jsonl(output))
-    except Exception:
+        returncode, summary = run_crawler(site)
+        # 일부 사이트가 실패해도 성공한 사이트 결과는 저장
+        added = import_records(db, read_jsonl(CRAWLED_FILE)) if CRAWLED_FILE.exists() else Counter()
+    except Exception as error:
         for run in runs.values():
-            run.status, run.finished_at = "failed", utcnow()
+            run.status, run.finished_at, run.message = "failed", utcnow(), f"{error.__class__.__name__}: {error}"[:500]
         db.commit()
         raise
 
     for name, run in runs.items():
-        run.status, run.finished_at, run.new_count = "done", utcnow(), added.get(name, 0)
+        result = summary.get(name)
+        run.finished_at, run.new_count = utcnow(), added.get(name, 0)
+        if result is None:
+            run.status, run.message = "failed", f"크롤러 결과 없음 (exit code {returncode})"
+        else:
+            run.status, run.message = result["status"], _run_message(result)
+        if run.status == "failed":
+            log.warning("수집 실패 %s: %s", name, run.message)
     db.commit()
 
     extracted = extract_pending(db, extractor)
-    return {"imported": dict(added), "extracted": extracted}
+    return {
+        "imported": dict(added),
+        "extracted": extracted,
+        "failed": [name for name, run in runs.items() if run.status == "failed"],
+    }

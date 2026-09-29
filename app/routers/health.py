@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import Event, Notice
+from app.models import CrawlRun, Event, Notice
+from app.schemas import SOURCE_IDS
 from app.services import google
-from app.timeutil import now_local
+from app.timeutil import now_local, to_local
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -23,6 +24,20 @@ def health(db: Session = Depends(get_db)):
             "notices": db.scalar(select(func.count()).select_from(Notice)),
             "events": db.scalar(select(func.count()).select_from(Event)),
         }
+        # 사이트별 최근 수집 결과 (실패 사유 확인용)
+        body["crawl"] = {}
+        for site in SOURCE_IDS:
+            run = db.scalar(select(CrawlRun).where(CrawlRun.site == site).order_by(CrawlRun.id.desc()))
+            body["crawl"][site] = (
+                {
+                    "status": run.status,
+                    "newCount": run.new_count,
+                    "startedAt": to_local(run.started_at).isoformat(timespec="seconds"),
+                    "message": run.message,
+                }
+                if run
+                else None
+            )
     except Exception:  # noqa: BLE001
         body["status"], body["db"] = "degraded", {"ok": False}
     body["config"] = {

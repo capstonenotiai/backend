@@ -23,7 +23,6 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     ports:
-      # PC 에 설치된 MySQL 이 3306 을 쓰고 있어서 3307 로 노출
       - "${MYSQL_PORT:-3307}:3306"
     volumes:
       - mysql-data:/var/lib/mysql

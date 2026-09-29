@@ -112,3 +112,5 @@ class CrawlRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     new_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="running")  # running | done | failed
+    # 실패 사유 / 경고 (예: 게시판 404, 사이트 접속 불가)
+    message: Mapped[str | None] = mapped_column(Text)

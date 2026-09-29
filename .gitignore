@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
+# 크롤러 결과 (crawler/runner.py → data/crawled_all.jsonl)
+data/
 *.db
 *.sqlite3
 .pytest_cache/
