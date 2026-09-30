@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.crypto import EncryptedText
 from app.db import Base
 
 
@@ -23,8 +24,8 @@ class User(Base):
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
     email: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(100))
-    # Google Calendar 호출용. 실제 서비스라면 암호화해서 저장할 것
-    google_refresh_token: Mapped[str | None] = mapped_column(Text)
+    # Google Calendar 호출용. DB 에는 암호화되어 저장됨 (app/crypto.py)
+    google_refresh_token: Mapped[str | None] = mapped_column(EncryptedText)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     preference: Mapped["Preference"] = relationship(back_populates="user", uselist=False)

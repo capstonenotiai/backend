@@ -50,7 +50,8 @@ def get_summary(db: Session) -> DashboardSummary:
                 source=site,
                 count=count,
                 progress=round(count / total_today * 100) if total_today else 0,
-                status=latest.status if latest else "done",
+                # 한 번도 수집하지 않은 사이트는 none (프론트: '기록 없음')
+                status=latest.status if latest else "none",
             )
         )
 

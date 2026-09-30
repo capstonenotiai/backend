@@ -1,8 +1,8 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.config import get_settings
 from app.models import Event, User, UserEvent
@@ -53,15 +53,32 @@ def to_event_out(event: Event, state: UserEvent | None) -> EventOut:
 
 
 def list_events(db: Session, user: User, enabled_sources: dict[str, bool] | None = None) -> list[EventOut]:
-    """사용자 설정에서 끈 출처(enabled_sources[x] == False)는 제외"""
-    query = select(Event).order_by(Event.end_date, Event.id)
+    """
+    - 사용자 설정에서 끈 출처(enabled_sources[x] == False)는 제외
+    - 지난 일정 제외 (EVENT_RETENTION_DAYS, 기본 90일)
+        · 마감일이 기준일보다 이전
+        · 날짜 없는 일정(needs_review)은 수집일이 기준보다 이전
+      단, 이 사용자가 캘린더에 등록했거나 북마크한 일정은 계속 표시
+    """
+    retention = timedelta(days=get_settings().event_retention_days)
+    cutoff_date = (now_local().date() - retention).isoformat()
+    cutoff_time = (now_local() - retention).astimezone(timezone.utc)
+
+    state = aliased(UserEvent)
+    query = (
+        select(Event, state)
+        .outerjoin(state, and_(state.event_id == Event.id, state.user_id == user.id))
+        .where(
+            or_(
+                Event.end_date >= cutoff_date,
+                and_(Event.end_date == "", Event.collected_at >= cutoff_time),
+                state.registered.is_(True),
+                state.bookmarked.is_(True),
+            )
+        )
+        .order_by(Event.end_date, Event.id)
+    )
     disabled = [source for source, on in (enabled_sources or {}).items() if on is False]
     if disabled:
         query = query.where(Event.source.not_in(disabled))
-    events = db.scalars(query).all()
-
-    states = {
-        state.event_id: state
-        for state in db.scalars(select(UserEvent).where(UserEvent.user_id == user.id))
-    }
-    return [to_event_out(event, states.get(event.id)) for event in events]
+    return [to_event_out(event, user_state) for event, user_state in db.execute(query).all()]

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./notiai.db"
     # 세션 쿠키 서명 키 — 배포 시 반드시 긴 랜덤 문자열
     session_secret: str = "change-me"
+    # Google refresh token 암호화 키 (Fernet). 비우면 SESSION_SECRET 에서 생성 — app/crypto.py
+    token_encryption_key: str = ""
     # 프론트 주소 (CORS 허용, 쉼표 구분) / 로그인 후 돌아갈 주소
     cors_origins: str = "http://localhost:5173,https://notiai.pages.dev"
     frontend_url: str = "http://localhost:5173"
@@ -47,6 +49,9 @@ class Settings(BaseSettings):
 
     # collected_at 이 이 일수 이내면 is_new
     new_event_days: int = 3
+    # /api/events 에서 제외하는 기준 (DB 에서 지우지는 않음) — app/services/events.py list_events
+    #   마감 후 N일 지남 / 날짜 없는 일정은 수집 후 N일 지남. 캘린더 등록·북마크한 일정은 계속 표시
+    event_retention_days: int = 90
     timezone: str = "Asia/Seoul"
 
     @property

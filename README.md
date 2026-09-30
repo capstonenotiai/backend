@@ -46,7 +46,15 @@ docker compose down                  # 중지 (데이터는 볼륨에 남음, �
 
 - `.env` 의 `DATABASE_URL=mysql+pymysql://notiai:notiai@localhost:3307/notiai?charset=utf8mb4` (로컬 uvicorn 용). 컨테이너는 compose 가 `db:3306` 으로 덮어씀
 - PC 에 설치된 MySQL 이 3306 을 쓰고 있어서 Docker MySQL 은 3307
-- 테이블은 서버 시작 시 자동 생성(`create_all`). 단, **이미 있는 테이블의 컬럼 변경은 반영되지 않음** → 모델을 바꾸면 개발 중에는 `docker compose down -v` 후 다시 seed, 운영 단계에서는 Alembic 도입
+- 테이블 구조는 **Alembic**(`migrations/`)으로 관리. 서버 시작 시 자동으로 `alembic upgrade head` 가 실행됨
+  (Alembic 도입 전 `create_all` 로 만든 DB 는 데이터를 그대로 두고 `0001` 로 표시한 뒤 이어서 적용)
+- 모델(`app/models.py`)을 바꿨으면:
+  ```powershell
+  alembic revision --autogenerate -m "무엇을 바꿨는지"   # migrations/versions/ 에 파일 생성 → 내용 꼭 확인
+  alembic upgrade head                                  # 적용 (또는 서버 재시작)
+  alembic downgrade -1                                  # 되돌리기
+  ```
+  마이그레이션을 빠뜨리면 `tests/test_api.py::test_migrations_match_models` 가 실패함
 - MySQL 로 테스트: `docker exec notiai-mysql mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS notiai_test; GRANT ALL ON notiai_test.* TO 'notiai'@'%';"` 후
   `$env:TEST_DATABASE_URL="mysql+pymysql://notiai:notiai@localhost:3307/notiai_test?charset=utf8mb4"; pytest`
 
@@ -57,6 +65,7 @@ docker compose down                  # 중지 (데이터는 볼륨에 남음, �
 | `DATABASE_URL` | `mysql+pymysql://notiai:notiai@localhost:3307/notiai?charset=utf8mb4` | 없으면 SQLite 파일 |
 | `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_ROOT_PASSWORD` / `MYSQL_PORT` | `notiai` / `notiai` / `notiai` / `root` / `3307` | docker-compose MySQL 설정 (바꾸면 `DATABASE_URL` 도 같이) |
 | `SESSION_SECRET` | 긴 랜덤 문자열 | 세션 쿠키 서명 키 |
+| `TOKEN_ENCRYPTION_KEY` | 비움 (→ `SESSION_SECRET` 에서 생성) | Google refresh token 암호화 키. ⚠️ 바꾸면 기존 사용자는 다시 로그인 필요 |
 | `DEV_LOGIN` | `true` | 로그인 안 한 요청도 개발용 사용자로 처리 (배포 시 `false`) |
 | `FRONTEND_URL` / `CORS_ORIGINS` | `http://localhost:5173` | 프론트 주소 |
 | `COOKIE_SECURE` | `false` | 도메인이 다른 https 배포에서 `true` |
@@ -121,23 +130,25 @@ CBNU 는 `sw_notice`/`scholarship`/`employment` → 학사/장학/취업, Wevity
 app/
   main.py            앱 생성 · CORS · 세션 · 에러 형식 · 라우터 등록
   config.py          환경변수
-  db.py, models.py   DB 연결 / 테이블 (users, preferences, notices, events, user_events, crawl_runs)
+  db.py, models.py   DB 연결 · 마이그레이션 실행 / 테이블 (users, preferences, notices, events, user_events, crawl_runs)
+  crypto.py          refresh token 암호화 (Fernet)
   schemas.py         요청·응답 형태 (프론트 계약)
   deps.py            로그인 사용자 (DEV_LOGIN)
   routers/           auth, users, events, dashboard, calendar, planner, health
   services/          extractor, pipeline, category, events, preferences, dashboard, google, planner
   scheduler.py       정기 수집
   seed.py, cli.py    데모 데이터 / 관리 명령어
+crawler/             크롤러 (cbnu, wevity, contestkorea, runner)
+migrations/          Alembic 마이그레이션
 tests/               pytest
 ```
 
 ## 배포 시 체크
 
-- `DEV_LOGIN=false`, `SESSION_SECRET` 랜덤 값, `DATABASE_URL` PostgreSQL
+- `DEV_LOGIN=false`, `SESSION_SECRET` 랜덤 값, `TOKEN_ENCRYPTION_KEY` 별도 키 권장, `DATABASE_URL` 운영 MySQL
 - 프론트(`notiai.pages.dev`)와 도메인이 다르면 `COOKIE_SECURE=true` (https 필수, `SameSite=None; Secure`) + `CORS_ORIGINS` 에 프론트 주소
   - 브라우저의 서드파티 쿠키 차단을 피하려면 같은 사이트 아래(예: 프론트 `notiai.example.com`, API `api.notiai.example.com`)에 두는 것이 가장 안전
 - Google Cloud Console: OAuth 동의 화면에 `calendar.events` 범위 추가, 승인된 리디렉션 URI 에 `GOOGLE_REDIRECT_URI` 등록
-- `google_refresh_token` 은 현재 평문 저장 — 실서비스라면 암호화
 
 ## 남은 작업
 

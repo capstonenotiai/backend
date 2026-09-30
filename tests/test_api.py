@@ -107,6 +107,109 @@ def test_interrupted_runs_marked_failed(db):
     assert statuses["wevity"][0] == "done"
 
 
+def _fresh_sqlite(tmp_path):
+    from sqlalchemy import create_engine
+
+    return create_engine(f"sqlite:///{tmp_path / 'm.db'}")
+
+
+def test_migrations_match_models(tmp_path):
+    """마이그레이션으로 만든 DB 구조 == models.py (모델만 바꾸고 마이그레이션을 빠뜨리면 실패)"""
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    from app.db import Base, run_migrations
+
+    engine = _fresh_sqlite(tmp_path)
+    with engine.begin() as conn:
+        run_migrations(conn)
+    with engine.connect() as conn:
+        diff = compare_metadata(MigrationContext.configure(conn, opts={"compare_type": True}), Base.metadata)
+    assert diff == []
+
+
+def test_existing_db_without_alembic_is_stamped_not_recreated(tmp_path):
+    from sqlalchemy import inspect, text
+
+    from app.db import Base, run_migrations
+
+    engine = _fresh_sqlite(tmp_path)
+    Base.metadata.create_all(engine)  # Alembic 도입 전처럼 create_all 로 만든 DB
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO users (email, name, created_at) VALUES ('a@b.c', 'kept', '2026-01-01')"))
+        run_migrations(conn)
+    with engine.connect() as conn:
+        assert "alembic_version" in inspect(conn).get_table_names()
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+        assert conn.execute(text("SELECT name FROM users")).scalar() == "kept"
+
+
+def test_refresh_token_encrypted_at_rest(db):
+    from sqlalchemy import text
+
+    from app.models import User
+
+    db.add(User(google_sub="s1", email="a@b.c", name="n", google_refresh_token="1//secret-token"))
+    db.commit()
+    raw = db.execute(text("SELECT google_refresh_token FROM users WHERE google_sub = 's1'")).scalar()
+    assert raw != "1//secret-token" and raw.startswith("gAAAA")
+    db.expire_all()
+    assert db.query(User).filter_by(google_sub="s1").one().google_refresh_token == "1//secret-token"
+
+
+def test_migration_0002_encrypts_plaintext_tokens(tmp_path):
+    from sqlalchemy import text
+
+    from app.crypto import decrypt
+    from app.db import run_migrations
+
+    engine = _fresh_sqlite(tmp_path)
+    with engine.begin() as conn:
+        run_migrations(conn, "0001")
+        conn.execute(text("INSERT INTO users (email, name, created_at, google_refresh_token) VALUES ('a@b.c', 'n', '2026-01-01', '1//plain')"))
+        run_migrations(conn, "head")
+    with engine.connect() as conn:
+        stored = conn.execute(text("SELECT google_refresh_token FROM users")).scalar()
+    assert stored != "1//plain" and decrypt(stored) == "1//plain"
+
+
+def test_old_events_hidden_unless_registered_or_bookmarked(client, db):
+    from datetime import date, datetime, timedelta, timezone
+
+    from app.deps import get_or_create_dev_user
+    from app.models import Event, UserEvent
+
+    today = date.today()
+    old_end = (today - timedelta(days=91)).isoformat()
+    recent_end = (today - timedelta(days=89)).isoformat()
+    long_ago = datetime.now(timezone.utc) - timedelta(days=91)
+
+    def add(title, end_date, collected_at=None):
+        event = Event(source="cbnu", title=title, end_date=end_date, collected_at=collected_at or datetime.now(timezone.utc))
+        db.add(event)
+        db.flush()
+        return event
+
+    add("마감 91일 지남", old_end)
+    add("마감 89일 지남", recent_end)
+    add("날짜 없음 · 91일 전 수집", "", long_ago)
+    add("날짜 없음 · 최근 수집", "")
+    user = get_or_create_dev_user(db)
+    registered = add("마감 91일 지남 · 등록함", old_end)
+    bookmarked = add("마감 91일 지남 · 북마크", old_end)
+    db.add_all([
+        UserEvent(user_id=user.id, event_id=registered.id, registered=True),
+        UserEvent(user_id=user.id, event_id=bookmarked.id, bookmarked=True),
+    ])
+    db.commit()
+
+    titles = {e["title"] for e in client.get("/api/events").json()}
+    assert "마감 91일 지남" not in titles
+    assert "날짜 없음 · 91일 전 수집" not in titles
+    assert {"마감 89일 지남", "날짜 없음 · 최근 수집", "마감 91일 지남 · 등록함", "마감 91일 지남 · 북마크"} <= titles
+    assert "2026 충북대학교 창업경진대회" in titles  # seed 일정 (앞으로의 마감)
+
+
 def test_register_unknown_event_returns_message(client):
     response = client.post("/api/calendar/register", json={"event_id": "nope"})
     assert response.status_code == 404
@@ -138,6 +241,7 @@ def test_profile_and_dashboard(client):
     assert client.get("/api/user").json()["email"] == "dev@notiai.local"
     summary = client.get("/api/dashboard").json()
     assert {s["source"] for s in summary["sources"]} == {"cbnu", "wevity", "contestkorea"}
+    assert {s["status"] for s in summary["sources"]} == {"none"}  # 수집 기록 없음
     assert summary["collectedChangeLabel"].endswith("vs 어제")
 
 

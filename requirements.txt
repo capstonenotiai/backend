@@ -1,6 +1,8 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 sqlalchemy>=2.0
+# DB 구조 변경 관리 (migrations/)
+alembic>=1.13
 pydantic-settings>=2.4
 itsdangerous>=2.2
 httpx>=0.27
@@ -8,7 +10,8 @@ openai>=1.50
 apscheduler>=3.10,<4
 tzdata
 
-# MySQL 드라이버 (cryptography: MySQL 8 기본 인증 방식 caching_sha2_password 에 필요)
+# MySQL 드라이버 + 토큰 암호화(Fernet)
+# (cryptography: MySQL 8 기본 인증 방식 caching_sha2_password 에도 필요)
 pymysql>=1.1
 cryptography>=42
 

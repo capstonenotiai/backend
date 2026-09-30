@@ -67,7 +67,7 @@ class SourceSummary(BaseModel):
     source: str
     count: int
     progress: int
-    status: str  # done | running | failed
+    status: str  # done | running | failed | none(수집 기록 없음)
 
 
 class DashboardSummary(BaseModel):
