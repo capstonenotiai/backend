@@ -8,18 +8,19 @@ import json
 import logging
 import subprocess
 import sys
+from dataclasses import asdict
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import CrawlRun, Event, Notice, utcnow
 from app.schemas import SOURCE_IDS
 from app.services.category import categorize
-from app.services.extractor import Extractor, get_extractor
+from app.services.extractor import ExtractionResult, Extractor, get_extractor
 
 log = logging.getLogger(__name__)
 
@@ -69,35 +70,39 @@ def read_jsonl(path: str | Path) -> list[dict]:
 def extract_pending(db: Session, extractor: Extractor | None = None, limit: int | None = None) -> int:
     """아직 event 가 없는 notice 를 추출해 events 로 저장. 처리 건수 반환"""
     extractor = extractor or get_extractor()
-    query = select(Notice).where(~Notice.event.has()).order_by(Notice.id)
+    query = select(Notice).where(Notice.extraction_state=='pending',~Notice.events.any()).order_by(Notice.id)
     if limit:
         query = query.limit(limit)
 
     count = 0
     for notice in db.scalars(query).all():
+        claimed=db.execute(update(Notice).where(Notice.id==notice.id,Notice.extraction_state=='pending')
+            .values(extraction_state='processing'))
+        db.commit()
+        if claimed.rowcount!=1: continue
         try:
             result = extractor.extract(notice.title_raw, notice.raw_text)
+            if not isinstance(result,ExtractionResult):
+                result=ExtractionResult([result],{'legacy_prediction':asdict(result)})
+            notice.extraction_result=result.raw
+            for extracted in result.events:
+                db.add(Event(notice_id=notice.id,source=notice.site,source_url=notice.source_url,
+                    **asdict(extracted),category=categorize(notice.site,notice.board),
+                    extractor=extractor.name,collected_at=notice.crawled_at))
+            # Store empty success separately; it is not an unprocessed notice.
+            notice.extraction_state='needs_review' if not result.events or any(
+                e.review_status=='needs_review' for e in result.events) else 'extracted'
+            notice.extraction_error=None
+            notice.revision+=1
+            db.commit()
         except Exception as error:  # noqa: BLE001 — 한 건 실패로 전체를 멈추지 않음
+            db.rollback()
+            notice.extraction_state='failed'
+            notice.extraction_error=f'{type(error).__name__}: {str(error)[:500]}'
+            if hasattr(error,'raw'): notice.extraction_result=error.raw
+            db.commit()
             log.warning("추출 실패 notice=%s: %s", notice.id, error)
             continue
-        db.add(
-            Event(
-                notice_id=notice.id,
-                source=notice.site,
-                source_url=notice.source_url,
-                title=result.title or notice.title_raw,
-                start_date=result.start_date,
-                end_date=result.end_date,
-                location=result.location,
-                detail=result.detail,
-                category=categorize(notice.site, notice.board),
-                review_status=result.review_status,
-                review_reason=result.review_reason,
-                extractor=extractor.name,
-                collected_at=notice.crawled_at,
-            )
-        )
-        db.commit()
         count += 1
     return count
 
@@ -138,6 +143,8 @@ def mark_interrupted_runs(db: Session) -> int:
     서버 시작 시 호출. 수집 도중 서버가 꺼져 'running' 으로 남은 기록을 실패로 정리
     (그대로 두면 대시보드에 계속 '수집 중'으로 보임)
     """
+    db.execute(update(Notice).where(Notice.extraction_state=='processing').values(
+        extraction_state='failed',extraction_error='서버 중단: 원문과 추출 상태 확인 필요'))
     runs = db.scalars(select(CrawlRun).where(CrawlRun.status == "running")).all()
     for run in runs:
         run.status, run.finished_at, run.message = "failed", utcnow(), "서버 재시작으로 수집이 중단됨"

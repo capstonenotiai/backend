@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.models import Event, User, UserEvent
 from app.schemas import EventOut
 from app.timeutil import as_aware, now_local, to_local
+from app.services.review import registration_error
 
 
 def parse_event_id(value: str | int) -> int:
@@ -49,6 +50,11 @@ def to_event_out(event: Event, state: UserEvent | None) -> EventOut:
         bookmarked=bool(state and state.bookmarked),
         collected_at=to_local(event.collected_at).isoformat(timespec="seconds"),
         review_status=event.review_status,
+        review_reason=event.review_reason,notice_id=event.notice_id,event_type=event.event_type,
+        start_time=event.start_time,end_time=event.end_time,timezone=event.timezone,
+        attendance_mode=event.attendance_mode,schedule_status=event.schedule_status,revision=event.revision,
+        can_register=registration_error(event) is None,registration_reason=registration_error(event),
+        sync_status=state.sync_status if state else 'none',
     )
 
 
@@ -68,6 +74,7 @@ def list_events(db: Session, user: User, enabled_sources: dict[str, bool] | None
     query = (
         select(Event, state)
         .outerjoin(state, and_(state.event_id == Event.id, state.user_id == user.id))
+        .where(or_(Event.review_status.in_(['auto','approved']),state.registered.is_(True)))
         .where(
             or_(
                 Event.end_date >= cutoff_date,

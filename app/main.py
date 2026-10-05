@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
 from app.db import SessionLocal, init_db
-from app.routers import auth, calendar, dashboard, events, health, planner, users
+from app.routers import admin, auth, calendar, dashboard, events, health, planner, users
 from app.scheduler import start_scheduler
 from app.services.pipeline import mark_interrupted_runs
 
@@ -92,5 +92,5 @@ async def validation_error(_: Request, exc: RequestValidationError):
     )
 
 
-for module in (health, auth, users, events, dashboard, calendar, planner):
+for module in (health, auth, users, events, dashboard, calendar, planner, admin):
     app.include_router(module.router)

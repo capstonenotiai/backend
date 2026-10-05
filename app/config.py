@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     # true: 로그인 안 한 요청도 '개발용 사용자'로 처리 (배포 시 false)
     dev_login: bool = True
+    # Actual signed-in Google accounts only. DEV_LOGIN never grants admin access.
+    admin_emails: str = ""
     # 프론트/백엔드 도메인이 다른 https 배포에서 true (SameSite=None; Secure)
     cookie_secure: bool = False
 
@@ -39,6 +41,8 @@ class Settings(BaseSettings):
     extractor: str = "stub"
     extract_model: str = "gpt-4o-mini"
     model_api_url: str = ""
+    # Shared X-Model-Token; keep only in the local environment/.env, never in logs.
+    model_api_token: str = ""
     # capstonenotiai/model repo 로컬 경로 — EXTRACTOR=gpt 일 때 SYSTEM_PROMPT/postprocess 재사용 (크롤러와는 무관)
     model_repo_path: str = ""
 

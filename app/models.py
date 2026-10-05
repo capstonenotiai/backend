@@ -58,7 +58,11 @@ class Notice(Base):
     raw_text: Mapped[str] = mapped_column(Text, default="")
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
-    event: Mapped["Event | None"] = relationship(back_populates="notice", uselist=False)
+    extraction_state: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
+    extraction_result: Mapped[dict | None] = mapped_column(JSON)
+    extraction_error: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    events: Mapped[list["Event"]] = relationship(back_populates="notice")
 
 
 class Event(Base):
@@ -67,7 +71,7 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    notice_id: Mapped[int | None] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), unique=True)
+    notice_id: Mapped[int | None] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), index=True)
     source: Mapped[str] = mapped_column(String(32), index=True)
     source_url: Mapped[str] = mapped_column(String(1000), default="")
 
@@ -78,13 +82,22 @@ class Event(Base):
     location: Mapped[str] = mapped_column(String(255), default="")
     detail: Mapped[str] = mapped_column(Text, default="")
 
+    event_type: Mapped[str] = mapped_column(String(24), default="event", server_default="event")
+    start_time: Mapped[str] = mapped_column(String(5), default="", server_default="")
+    end_time: Mapped[str] = mapped_column(String(5), default="", server_default="")
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Seoul", server_default="Asia/Seoul")
+    attendance_mode: Mapped[str] = mapped_column(String(24), default="unknown", server_default="unknown")
+    schedule_status: Mapped[str] = mapped_column(String(24), default="confirmed", server_default="confirmed")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    extraction_metadata: Mapped[dict | None] = mapped_column(JSON)
+
     category: Mapped[str | None] = mapped_column(String(32))
     review_status: Mapped[str] = mapped_column(String(16), default="needs_review")  # auto | needs_review
     review_reason: Mapped[str | None] = mapped_column(Text)
     extractor: Mapped[str | None] = mapped_column(String(32))
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    notice: Mapped[Notice | None] = relationship(back_populates="event")
+    notice: Mapped[Notice | None] = relationship(back_populates="events")
 
 
 class UserEvent(Base):
@@ -99,7 +112,22 @@ class UserEvent(Base):
     registered: Mapped[bool] = mapped_column(Boolean, default=False)
     google_event_id: Mapped[str | None] = mapped_column(String(255))
     bookmarked: Mapped[bool] = mapped_column(Boolean, default=False)
+    synced_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    sync_status: Mapped[str] = mapped_column(String(24), default="none", server_default="none")
+    sync_error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ReviewLog(Base):
+    __tablename__ = "review_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(24))
+    reason: Mapped[str] = mapped_column(Text)
+    before: Mapped[list] = mapped_column(JSON)
+    after: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class CrawlRun(Base):

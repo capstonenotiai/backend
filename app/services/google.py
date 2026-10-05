@@ -4,7 +4,8 @@ Google OAuth 2.0 + Google Calendar API (REST 직접 호출).
 로그인할 때 calendar.events 권한까지 한 번에 받고, refresh token 을 users 테이블에 저장해
 캘린더 등록/삭제 때마다 access token 을 새로 발급받아 쓴다.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 
 import httpx
@@ -81,7 +82,7 @@ def build_calendar_body(event: Event) -> dict:
     end = date.fromisoformat(event.end_date)
     start = date.fromisoformat(event.start_date) if event.start_date else end
     if start > end:
-        start = end
+        raise ValueError('Invalid date order')
     description = "\n\n".join(part for part in [event.detail, event.source_url, "NotiAI에서 등록한 일정"] if part)
     body = {
         "summary": event.title,
@@ -91,7 +92,45 @@ def build_calendar_body(event: Event) -> dict:
     }
     if event.location:
         body["location"] = event.location
+    start_time=getattr(event,'start_time','') or ''
+    end_time=getattr(event,'end_time','') or ''
+    timezone=getattr(event,'timezone','') or 'Asia/Seoul'
+    zone=ZoneInfo(timezone)
+    if start_time or end_time:
+        if start_time and end_time:
+            begins=datetime.fromisoformat(f'{start.isoformat()}T{start_time}').replace(tzinfo=zone)
+            finishes=datetime.fromisoformat(f'{end.isoformat()}T{end_time}').replace(tzinfo=zone)
+            if finishes < begins: raise ValueError('Invalid time order')
+            if finishes==begins: finishes=begins+timedelta(minutes=1)
+        elif end_time:
+            if start!=end: raise ValueError('Missing start time for multiple days')
+            begins=datetime.fromisoformat(f'{end.isoformat()}T{end_time}').replace(tzinfo=zone)
+            finishes=begins+timedelta(minutes=1)
+            body['description']+='\n마감 시각을 표시하는 1분 일정입니다.'
+        else:
+            if start!=end: raise ValueError('Missing end time for multiple days')
+            begins=datetime.fromisoformat(f'{start.isoformat()}T{start_time}').replace(tzinfo=zone)
+            finishes=begins+timedelta(minutes=30)
+            body['description']+='\n종료 시각은 원문에 없습니다. 캘린더에만 30분 길이로 표시합니다.'
+        body['start']={'dateTime':begins.isoformat(),'timeZone':timezone}
+        body['end']={'dateTime':finishes.isoformat(),'timeZone':timezone}
     return body
+
+
+def update_event(refresh_token: str, google_event_id: str, event: Event) -> None:
+    token=refresh_access_token(refresh_token)
+    body=build_calendar_body(event)
+    # PATCH must explicitly clear a former location and the other date representation.
+    body['location']=event.location or ''
+    for key in ('start','end'):
+        if 'dateTime' in body[key]: body[key]['date']=None
+        else:
+            body[key]['dateTime']=None
+            body[key]['timeZone']=None
+    response=httpx.patch(f'{CALENDAR_EVENTS_URL}/{google_event_id}',
+        headers={'Authorization':f'Bearer {token}'},json=body,timeout=15)
+    if response.status_code!=200:
+        raise GoogleError(f'캘린더 갱신 실패 ({response.status_code})')
 
 
 def insert_event(refresh_token: str, event: Event) -> str:

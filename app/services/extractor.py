@@ -9,11 +9,13 @@ EXTRACTOR 환경변수로 구현체를 고른다. 모델이 완성되면 model_a
   model_api : 모델 팀 추론 서버 호출 (POST MODEL_API_URL)
 """
 import importlib
+import copy
 import json
 import logging
 import re
 import sys
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 
 import httpx
@@ -47,12 +49,95 @@ class Extraction:
     detail: str
     review_status: str  # auto | needs_review
     review_reason: str | None = None
+    event_type: str = 'event'
+    start_time: str = ''
+    end_time: str = ''
+    timezone: str = 'Asia/Seoul'
+    attendance_mode: str = 'unknown'
+    schedule_status: str = 'confirmed'
+    extraction_metadata: dict | None = None
+
+
+@dataclass
+class ExtractionResult:
+    events: list[Extraction]
+    raw: dict
+
+
+class InvalidExtraction(ValueError):
+    def __init__(self,message,raw):
+        super().__init__(message)
+        self.raw=raw
+
+
+def parse_model_response(data: dict, title: str) -> ExtractionResult:
+    from app.services.review import EventEdit
+    if not isinstance(data,dict): raise ValueError('Model response must be an object')
+    if data.get('schema_version') == 'notiai-model-candidate-v1':
+        if data.get('status') != 'candidate' or data.get('validation_errors') != [] or data.get('review_required') is not True:
+            raise ValueError('Invalid or incomplete model generation')
+        candidate = data.get('candidate')
+        if not isinstance(candidate, dict) or set(candidate) != {'events'} or not isinstance(candidate['events'], list):
+            raise ValueError('Invalid candidate events')
+        if len(candidate['events']) > 50: raise ValueError('Too many candidate events')
+        fields = {'title','event_type','start_date','end_date','start_time','end_time','location','attendance_mode','schedule_status'}
+        results = []
+        for item in candidate['events']:
+            if not isinstance(item, dict) or set(item) != fields:
+                raise ValueError('Invalid candidate fields')
+            if any(value is not None and not isinstance(value, str) for value in item.values()):
+                raise ValueError('Invalid candidate value type')
+            if item['event_type'] != 'event' and item['attendance_mode'] != 'not_applicable':
+                raise ValueError('Invalid non-event attendance mode')
+            value = EventEdit(**{key: val if val is not None else '' for key, val in item.items()})
+            native = data.get('native_prediction')
+            if (data.get('metadata') or {}).get('prompt_mode') == 'v10-native' and isinstance(native, dict):
+                detail = native.get('detail', '')
+                if not isinstance(detail, str): raise ValueError('Invalid native detail')
+                value.detail = detail[:DETAIL_MAX]
+            results.append(Extraction(**value.model_dump(exclude={'id'}), review_status='needs_review',
+                review_reason='간소화 모델 후보: 역할·날짜·장소 원문 검토 필요', extraction_metadata=item))
+        # This transport is deliberately NOT promoted to the full v2 evidence contract.
+        return ExtractionResult(results, data)
+    if 'events' not in data:
+        pred=data.get('final_prediction',data)
+        if not isinstance(pred,dict) or not {'title','start_date','end_date','location','detail'} <= set(pred):
+            raise ValueError('Incomplete legacy response')
+        result=to_extraction(pred,title)
+        # The model cannot override a failed deterministic check to auto.
+        if data.get('auto_register_status')=='needs_review':
+            result.review_status='needs_review'
+            result.review_reason=str(data.get('auto_register_reason') or '모델 검토 요청')
+        return ExtractionResult([result],data)
+    if data.get('schema_version')!='student-calendar-v2.0' or not isinstance(data['events'],list):
+        raise ValueError('Unsupported events schema')
+    if data.get('coverage') not in ('complete','partial','unavailable') or not isinstance(data.get('relations'),list) or not isinstance(data.get('issues'),list):
+        raise ValueError('Missing coverage/relations/issues')
+    if len(data['events'])>50: raise ValueError('Too many events')
+    results=[]
+    event_ids=set()
+    for item in data['events']:
+        if not isinstance(item,dict) or not item.get('event_id') or item['event_id'] in event_ids:
+            raise ValueError('Missing/duplicate event_id')
+        event_ids.add(item['event_id'])
+        locations=item.get('locations',[])
+        if not isinstance(locations,list) or any(not isinstance(x,dict) or not isinstance(x.get('name'),str) for x in locations):
+            raise ValueError('Invalid locations')
+        value=EventEdit(title=item['title'],event_type=item['event_type'],
+            start_date=item.get('start_date') or '',end_date=item.get('end_date') or '',
+            start_time=item.get('start_time') or '',end_time=item.get('end_time') or '',
+            timezone=item.get('timezone') or 'Asia/Seoul',location=' / '.join(x['name'] for x in locations),
+            detail=item.get('detail') or '',attendance_mode=item.get('attendance_mode','unknown'),
+            schedule_status=item.get('schedule_status','unknown'))
+        results.append(Extraction(**value.model_dump(exclude={'id'}),review_status='needs_review',
+            review_reason='v2 추출 결과 관리자 검토 필요',extraction_metadata=item))
+    return ExtractionResult(results,data)
 
 
 class Extractor(Protocol):
     name: str
 
-    def extract(self, title: str, body: str) -> Extraction: ...
+    def extract(self, title: str, body: str) -> Extraction | ExtractionResult: ...
 
 
 def build_user_content(title: str, body: str) -> str:
@@ -67,6 +152,11 @@ def decide_review_status(start: str, end: str) -> tuple[str, str | None]:
     """
     if not end:
         return "needs_review", "end_date 없음"
+    try:
+        date.fromisoformat(end)
+        if start: date.fromisoformat(start)
+    except ValueError:
+        return 'needs_review','유효하지 않은 날짜'
     if start and start > end:
         return "needs_review", f"start({start}) > end({end}): 날짜 역전"
     return "auto", None
@@ -74,13 +164,18 @@ def decide_review_status(start: str, end: str) -> tuple[str, str | None]:
 
 def _clean_date(value) -> str:
     text = str(value or "").strip()
-    return text if _DATE_RE.match(text) else ""
+    try:
+        return text if _DATE_RE.match(text) and date.fromisoformat(text) else ''
+    except ValueError:
+        return ''
 
 
 def to_extraction(pred: dict, fallback_title: str) -> Extraction:
     start = _clean_date(pred.get("start_date"))
     end = _clean_date(pred.get("end_date"))
     status, reason = decide_review_status(start, end)
+    if (pred.get('start_date') and not start) or (pred.get('end_date') and not end):
+        status,reason='needs_review','유효하지 않은 날짜'
     return Extraction(
         title=str(pred.get("title") or fallback_title).strip(),
         start_date=start,
@@ -149,9 +244,10 @@ class GptExtractor:
             ],
         )
         pred = json.loads(response.choices[0].message.content or "{}")
+        raw=copy.deepcopy(pred)
         if self.postprocess:
             pred = self.postprocess(pred, user_content)
-        return to_extraction(pred, title)
+        return ExtractionResult([to_extraction(pred,title)],{'raw_prediction':raw,'final_prediction':pred})
 
 
 class ModelApiExtractor:
@@ -167,6 +263,7 @@ class ModelApiExtractor:
 
     def __init__(self):
         self.url = get_settings().model_api_url
+        self.token = get_settings().model_api_token
         if not self.url:
             raise RuntimeError("EXTRACTOR=model_api 인데 MODEL_API_URL 이 없습니다.")
 
@@ -175,16 +272,18 @@ class ModelApiExtractor:
             self.url,
             json={"title": title, "body": body, "user_content": build_user_content(title, body)},
             timeout=120,
+            headers={'X-Model-Token': self.token} if self.token else {},
+            follow_redirects=False,  # Do not forward the shared secret to another origin.
         )
-        response.raise_for_status()
-        data = response.json()
-        pred = data.get("final_prediction", data)
-        result = to_extraction(pred, title)
-        # 모델 쪽 판단(cascade trigger 등)이 더 정교하므로 있으면 우선 사용
-        if data.get("auto_register_status") in ("auto", "needs_review"):
-            result.review_status = data["auto_register_status"]
-            result.review_reason = data.get("auto_register_reason")
-        return result
+        try: data = response.json()
+        except ValueError as exc:
+            raise InvalidExtraction('Model API returned non-JSON', {'status_code': response.status_code,
+                'response_text': response.text[:10000]}) from exc
+        if response.is_error:
+            raise InvalidExtraction(f'Model API HTTP {response.status_code}', {'status_code': response.status_code, 'response': data})
+        try: return parse_model_response(data,title)
+        except (ValueError,KeyError,TypeError) as exc:
+            raise InvalidExtraction(str(exc),data) from exc
 
 
 _EXTRACTORS = {"stub": StubExtractor, "gpt": GptExtractor, "model_api": ModelApiExtractor}

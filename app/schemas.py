@@ -24,11 +24,24 @@ class EventOut(BaseModel):
     bookmarked: bool
     collected_at: str | None
     review_status: str
+    review_reason: str | None = None
+    notice_id: int | None = None
+    event_type: str = 'event'
+    start_time: str = ''
+    end_time: str = ''
+    timezone: str = 'Asia/Seoul'
+    attendance_mode: str = 'unknown'
+    schedule_status: str = 'confirmed'
+    revision: int = 1
+    can_register: bool = False
+    registration_reason: str | None = None
+    sync_status: str = 'none'
 
 
 class Profile(BaseModel):
     name: str
     email: str
+    is_admin: bool = False
 
 
 class Notifications(BaseModel):

@@ -12,6 +12,25 @@ DEV_USER_EMAIL = "dev@notiai.local"
 DEV_USER_SUB = "dev-user"
 
 
+def is_admin(user: User) -> bool:
+    allowed = {x.strip().casefold() for x in get_settings().admin_emails.split(',') if x.strip()}
+    return bool(user.google_sub and user.google_sub != DEV_USER_SUB and user.email.casefold() in allowed)
+
+
+def require_admin(request: Request, db: Session = Depends(get_db)) -> User:
+    user = db.get(User, request.session.get('user_id')) if request.session.get('user_id') else None
+    if not user:
+        raise HTTPException(401, '관리자 로그인이 필요합니다.')
+    if not is_admin(user):
+        raise HTTPException(403, '관리자 권한이 필요합니다.')
+    # Cross-origin cookie deployments must not allow third-party admin writes.
+    if request.method not in ('GET','HEAD','OPTIONS'):
+        origin = request.headers.get('origin')
+        if origin not in get_settings().cors_origin_list:
+            raise HTTPException(403, '허용되지 않은 요청 출처입니다.')
+    return user
+
+
 def get_or_create_dev_user(db: Session) -> User:
     user = db.scalar(select(User).where(User.google_sub == DEV_USER_SUB))
     if user:
