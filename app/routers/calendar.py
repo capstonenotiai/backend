@@ -17,7 +17,7 @@ from app.deps import get_current_user
 from app.models import User
 from app.schemas import RegisterIn, RegisterOut
 from app.services import google
-from app.services.events import get_event_or_404, get_user_event
+from app.services.events import get_event_or_404, get_user_event, notice_events, calendar_events
 from app.services.review import registration_error
 
 log = logging.getLogger(__name__)
@@ -35,44 +35,73 @@ def _can_skip_google(user: User) -> bool:
 @router.post("/register", response_model=RegisterOut)
 def register(body: RegisterIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     event = get_event_or_404(db, body.event_id)
-    state = get_user_event(db, user, event)
-    if state.registered:
-        return RegisterOut(id=str(event.id), registered=True)
+    if event.event_type == 'interview':
+        raise HTTPException(400, '면접은 상세 화면에서 개별 추가해 주세요.')
     error=registration_error(event)
     if error: raise HTTPException(status_code=400,detail=error)
+    targets = [e for e in notice_events(db, event) if e.event_type not in ('interview', 'result')
+               and e.review_status in ('auto', 'approved') and e.schedule_status != 'cancelled']
+    _register_targets(db, user, targets)
+    return RegisterOut(id=str(event.id), registered=True)
 
-    if not _can_skip_google(user):
+
+def _register_targets(db, user, targets):
+    # Validate the complete bundle before any external writes.
+    for event in targets:
+        error = registration_error(event)
+        if error:
+            raise HTTPException(400, f'함께 등록할 일정 확인이 필요합니다: {error}')
+    skip = _can_skip_google(user)
+    for event in targets:
+        state = get_user_event(db, user, event)
+        if state.registered:
+            continue
         try:
-            state.google_event_id = google.insert_event(user.google_refresh_token, event)
-        except google.GoogleError as error:
-            log.error("calendar register failed user=%s event=%s: %s", user.id, event.id, error)
-            raise HTTPException(status_code=502, detail="Google 캘린더 등록에 실패했습니다.") from None
+            if not skip:
+                state.google_event_id = google.insert_event(user.google_refresh_token, event)
+        except (google.GoogleError, httpx.HTTPError):
+            db.rollback()
+            # Successful siblings are committed; a retry skips them instead of duplicating them.
+            raise HTTPException(502, '일부 일정 등록에 실패했습니다. 이미 등록한 일정은 유지됩니다. 다시 시도해 주세요.') from None
+        state.registered = True
+        state.synced_revision = event.revision
+        state.sync_status = 'synced'
+        state.sync_error = None
+        db.commit()
 
-    state.registered = True
-    state.synced_revision=event.revision
-    state.sync_status='synced'
-    state.sync_error=None
-    db.commit()
+
+@router.get('/events')
+def registered_events(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return calendar_events(db, user)
+
+
+@router.post('/interviews/{event_id}', response_model=RegisterOut)
+def register_interview(event_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    event = get_event_or_404(db, event_id)
+    if event.event_type != 'interview':
+        raise HTTPException(400, '면접 일정만 개별 추가할 수 있습니다.')
+    _register_targets(db, user, [event])
     return RegisterOut(id=str(event.id), registered=True)
 
 
 @router.delete("/register/{event_id}", response_model=RegisterOut)
 def unregister(event_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     event = get_event_or_404(db, event_id)
-    state = get_user_event(db, user, event)
-
-    if state.google_event_id and user.google_refresh_token:
-        try:
-            google.delete_event(user.google_refresh_token, state.google_event_id)
-        except google.GoogleError as error:
-            log.error("calendar unregister failed user=%s event=%s: %s", user.id, event.id, error)
-            raise HTTPException(status_code=502, detail="Google 캘린더 삭제에 실패했습니다.") from None
-
-    state.registered = False
-    state.google_event_id = None
-    state.sync_status='none'
-    state.sync_error=None
-    db.commit()
+    targets = [event] if event.event_type == 'interview' else [
+        e for e in notice_events(db, event) if e.event_type not in ('interview', 'result')]
+    for target in targets:
+        state = get_user_event(db, user, target)
+        if state.google_event_id and user.google_refresh_token:
+            try:
+                google.delete_event(user.google_refresh_token, state.google_event_id)
+            except (google.GoogleError, httpx.HTTPError):
+                db.rollback()
+                raise HTTPException(502, '일부 일정 해제에 실패했습니다. 다시 시도해 주세요.') from None
+        state.registered = False
+        state.google_event_id = None
+        state.sync_status='none'
+        state.sync_error=None
+        db.commit()
     return RegisterOut(id=str(event.id), registered=False)
 
 

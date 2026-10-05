@@ -25,7 +25,7 @@ class EventEdit(BaseModel):
     timezone: str = 'Asia/Seoul'
     location: str = Field(default='', max_length=255)
     detail: str = Field(default='', max_length=2000)
-    event_type: Literal['application','submission','event','result','service_change'] = 'event'
+    event_type: Literal['application','submission','event','interview','orientation','result','service_change'] = 'event'
     attendance_mode: Literal['offline','online','hybrid','unknown','not_applicable'] = 'unknown'
     schedule_status: Literal['confirmed','tentative','cancelled','unknown'] = 'confirmed'
 
@@ -67,6 +67,8 @@ def snapshot(event):
 
 
 def registration_error(event):
+    if event.event_type == 'result':
+        return '결과 발표 일정은 서비스에서 제공하지 않습니다.'
     if event.review_status not in ('auto','approved'):
         return '관리자 검토가 완료되지 않았거나 제외된 일정입니다.'
     if event.schedule_status=='cancelled': return '취소된 일정입니다.'

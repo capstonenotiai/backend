@@ -9,6 +9,7 @@ from app.models import Event, User, UserEvent
 from app.schemas import EventOut
 from app.timeutil import as_aware, now_local, to_local
 from app.services.review import registration_error
+from app.services.display_rules import HIDDEN_TYPES, representative
 
 
 def parse_event_id(value: str | int) -> int:
@@ -58,34 +59,69 @@ def to_event_out(event: Event, state: UserEvent | None) -> EventOut:
     )
 
 
+def _visible_rows(db, user, enabled_sources=None):
+    state = aliased(UserEvent)
+    query = (select(Event, state)
+             .outerjoin(state, and_(state.event_id == Event.id, state.user_id == user.id))
+             .where(Event.event_type.not_in(HIDDEN_TYPES))
+             .where(or_(Event.review_status.in_(['auto', 'approved']), state.registered.is_(True)))
+             .order_by(Event.end_date, Event.id))
+    disabled = [source for source, on in (enabled_sources or {}).items() if on is False]
+    if disabled:
+        query = query.where(Event.source.not_in(disabled))
+    return list(db.execute(query).all())
+
+
+def notice_events(db, event):
+    if event.notice_id is None:
+        return [event]
+    return list(db.scalars(select(Event).where(Event.notice_id == event.notice_id).order_by(Event.id)))
+
+
+def event_detail(db, user, event_id):
+    anchor = get_event_or_404(db, event_id)
+    rows = _visible_rows(db, user)
+    group = [(event, state) for event, state in rows
+             if event.id == anchor.id or (anchor.notice_id is not None and event.notice_id == anchor.notice_id)]
+    if not group or not any(event.id == anchor.id for event, _ in group):
+        raise HTTPException(404, '공개된 일정을 찾을 수 없습니다.')
+    return {'notice_id': anchor.notice_id, 'events': [to_event_out(event, state) for event, state in group]}
+
+
+def calendar_events(db, user):
+    # A closed application must never hide an already registered main event.
+    return [to_event_out(event, state) for event, state in _visible_rows(db, user) if state and state.registered]
+
+
 def list_events(db: Session, user: User, enabled_sources: dict[str, bool] | None = None) -> list[EventOut]:
     """
     - 사용자 설정에서 끈 출처(enabled_sources[x] == False)는 제외
-    - 지난 일정 제외 (EVENT_RETENTION_DAYS, 기본 90일)
-        · 마감일이 기준일보다 이전
-        · 날짜 없는 일정(needs_review)은 수집일이 기준보다 이전
-      단, 이 사용자가 캘린더에 등록했거나 북마크한 일정은 계속 표시
+    - 공지별 가장 가까운 미마감 접수 1건, 접수가 없으면 본행사 1건
+    - 접수가 모두 마감되면 보존 기간·관심·등록과 무관하게 목록에서 제외
+    - 기존 보존 기간은 선택된 대표 일정에 적용; 캘린더는 별도 조회
     """
     retention = timedelta(days=get_settings().event_retention_days)
     cutoff_date = (now_local().date() - retention).isoformat()
     cutoff_time = (now_local() - retention).astimezone(timezone.utc)
 
-    state = aliased(UserEvent)
-    query = (
-        select(Event, state)
-        .outerjoin(state, and_(state.event_id == Event.id, state.user_id == user.id))
-        .where(or_(Event.review_status.in_(['auto','approved']),state.registered.is_(True)))
-        .where(
-            or_(
-                Event.end_date >= cutoff_date,
-                and_(Event.end_date == "", Event.collected_at >= cutoff_time),
-                state.registered.is_(True),
-                state.bookmarked.is_(True),
-            )
-        )
-        .order_by(Event.end_date, Event.id)
-    )
-    disabled = [source for source, on in (enabled_sources or {}).items() if on is False]
-    if disabled:
-        query = query.where(Event.source.not_in(disabled))
-    return [to_event_out(event, user_state) for event, user_state in db.execute(query).all()]
+    groups = {}
+    for event, state in _visible_rows(db, user, enabled_sources):
+        key = ('notice', event.notice_id) if event.notice_id is not None else ('event', event.id)
+        groups.setdefault(key, []).append((event, state))
+    output = []
+    for rows in groups.values():
+        # Choose before retention filtering: a retained main event cannot revive closed applications.
+        chosen = representative([event for event, _ in rows], now_local())
+        if chosen is None:
+            continue
+        state = next(state for event, state in rows if event.id == chosen.id)
+        bookmarked = any(state and state.bookmarked for _, state in rows)
+        registered = bool(state and state.registered)
+        if not (chosen.end_date >= cutoff_date or
+                (not chosen.end_date and as_aware(chosen.collected_at) >= cutoff_time) or
+                registered or bookmarked):
+            continue
+        item = to_event_out(chosen, state)
+        item.bookmarked = bookmarked
+        output.append(item)
+    return sorted(output, key=lambda item: (item.end_date or '9999', int(item.id)))
