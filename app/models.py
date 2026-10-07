@@ -87,7 +87,7 @@ class NoticeEnrichment(Base):
     facts: Mapped[dict] = mapped_column(JSON, default=dict)
     notice_kind: Mapped[str] = mapped_column(String(16), default="normal", server_default="normal")
     grouping_review_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    grouping_review_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    grouping_review_reason: Mapped[str] = mapped_column(Text, default="")  # MySQL: TEXT 에 DEFAULT 불가
     enrichment_status: Mapped[str] = mapped_column(String(24), default="ok", server_default="ok")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

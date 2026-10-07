@@ -21,7 +21,8 @@ def upgrade():
         sa.Column('facts', sa.JSON(), nullable=False),
         sa.Column('notice_kind', sa.String(16), nullable=False, server_default='normal'),
         sa.Column('grouping_review_required', sa.Boolean(), nullable=False, server_default='0'),
-        sa.Column('grouping_review_reason', sa.Text(), nullable=False, server_default=''),
+        # MySQL 은 TEXT 컬럼에 DEFAULT 를 허용하지 않는다 → 기본값은 앱에서만
+        sa.Column('grouping_review_reason', sa.Text(), nullable=False),
         sa.Column('enrichment_status', sa.String(24), nullable=False, server_default='ok'),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False))
 
