@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.models import Event, User, UserEvent, UserNotice
 from app.schemas import EventOut
 from app.timeutil import as_aware, now_local, to_local
-from app.services.review import registration_error
+from app.services.review import registration_error, requires_confirmation, confirmation_reason
 from app.services.display_rules import HIDDEN_TYPES, representative, service_excluded
 from app.services.user_schedule import effective_event
 
@@ -54,12 +54,13 @@ def to_event_out(event: Event, state: UserEvent | None, dismissed=False) -> Even
         bookmarked=bool(state and state.bookmarked),
         collected_at=to_local(shared.collected_at).isoformat(timespec="seconds"),
         review_status=event.review_status,
-        review_reason=event.review_reason,notice_id=event.notice_id,event_type=event.event_type,
+        review_reason=confirmation_reason(shared) if shared.ai_extracted else event.review_reason,
+        notice_id=event.notice_id,event_type=event.event_type,
         start_time=event.start_time,end_time=event.end_time,timezone=event.timezone,
         attendance_mode=event.attendance_mode,schedule_status=event.schedule_status,revision=event.revision,
         can_register=registration_error(event) is None,registration_reason=registration_error(event),
         sync_status=state.sync_status if state else 'none',
-        ai_extracted=shared.ai_extracted, review_required=bool(shared.review_reason),
+        ai_extracted=shared.ai_extracted, review_required=requires_confirmation(shared),
         action_status=state.action_status if state else 'pending', dismissed=dismissed,
         user_modified=bool(state and state.overrides),
     )

@@ -8,6 +8,7 @@ from app.models import Event, UserEvent, UserNotice
 from app.services.display_rules import APPLICATION_TYPES, deadline
 from app.services.google import build_calendar_body
 from app.services.user_schedule import effective_event
+from app.services.review import requires_confirmation
 
 SEOUL = ZoneInfo('Asia/Seoul')
 
@@ -73,5 +74,5 @@ def event_facts(db, user, event, state=None, now=None):
         'dismissed': bool(notice_state and notice_state.dismissed),
         'calendar_conflict': True if conflict_ids else False if verified else None,
         'conflicting_event_ids': sorted(conflict_ids),
-        'review_required': bool(event.review_reason),
+        'review_required': requires_confirmation(event),
     }

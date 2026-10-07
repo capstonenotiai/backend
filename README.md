@@ -182,8 +182,8 @@ tests/               pytest
 | --- | --- |
 | `GET /api/events?include_dismissed=true` | 기본은 관심 없음 제외; true이면 포함 |
 | `GET /api/events/{id}` | 공지의 공개된 전체 일정과 dismissed |
-| `POST /api/calendar/register` | event_id, confirmed=true, overrides(일정 ID별 수정 객체); 면접 제외한 공지 묶음 등록 |
-| `POST /api/calendar/interviews/{id}` | confirmed=true, overrides; 면접 개별 추가 |
+| `POST /api/calendar/register` | event_id, 선택 confirmed/overrides(일정 ID별 수정 객체); 면접 제외한 공지 묶음 등록 |
+| `POST /api/calendar/interviews/{id}` | 선택 confirmed/overrides; 면접 개별 추가 |
 | `PATCH /api/events/{id}/overrides` | start_date/end_date/start_time/end_time/location; 생략=유지, null=원본 복원, 빈 문자열=비움 |
 | `PUT /api/events/{id}/action-status` | action_status: pending 또는 done |
 | `PUT /api/events/{id}/dismissed` | dismissed: true/false; 사용자×공지 저장 |
@@ -196,6 +196,10 @@ tests/               pytest
 {"event_id":"8","confirmed":true,"overrides":{"8":{"end_date":"2026-10-22","end_time":"18:00","location":""}}}
 ```
 
+일반 일정은 확인 창 없이 바로 등록한다. 등록할 묶음에 모델 review 사유나 사이트 접수기간과의 마감일 불일치가
+있을 때만 "공지에서 날짜를 한 번 확인해 주세요" 창을 열고 confirmed=true로 요청한다.
+단순 schedule_status=unknown/tentative만으로 확인 창을 띄우지 않는다. 화면의 AI 추출 표시는 제거하되 DB의 ai_extracted는 유지한다.
+등록 후 수정·신청 완료·신고·면접 개별 추가는 전체 일정 상세에 두고 원문 링크는 상세 맨 아래에 둔다.
 등록은 전체 묶음의 수정 값을 검증한 뒤 수행한다. Google에는 사용자 수정 값을 보낸다.
 Google 일부 등록 실패 시 성공한 일정은 유지하고 재시도 시 중복 등록하지 않는다.
 등록 이후 PATCH 수정은 `needs_sync`이며 `POST /api/calendar/sync/{id}`로 수정 값을 Google에 반영한다.

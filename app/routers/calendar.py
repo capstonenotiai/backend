@@ -18,7 +18,7 @@ from app.models import User
 from app.schemas import RegisterIn, RegisterOut, ConfirmationIn
 from app.services import google
 from app.services.events import get_event_or_404, get_user_event, notice_events, calendar_events
-from app.services.review import registration_error
+from app.services.review import registration_error, requires_confirmation
 from app.services.user_schedule import effective_event, validate_overrides
 from app.services.display_rules import HIDDEN_TYPES, service_excluded
 
@@ -53,8 +53,8 @@ def _register_targets(db, user, targets, confirmation=None):
     patches = confirmation.overrides if confirmation else {}
     if any(key not in {str(e.id) for e in targets} for key in patches):
         raise HTTPException(400, '등록 대상이 아닌 일정의 수정 값입니다.')
-    if any(e.ai_extracted for e in targets) and not (confirmation and confirmation.confirmed):
-        raise HTTPException(400, '날짜·시각·장소를 확인한 뒤 등록해 주세요.')
+    if any(requires_confirmation(e) for e in targets) and not (confirmation and confirmation.confirmed):
+        raise HTTPException(400, '공지에서 날짜를 한 번 확인해 주세요.')
     prepared = []
     # Validate the complete bundle before any external writes.
     for event in targets:

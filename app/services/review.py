@@ -67,6 +67,21 @@ def snapshot(event):
             'review_reason':event.review_reason}
 
 
+def confirmation_reason(event):
+    if not getattr(event, 'ai_extracted', False):
+        return None
+    # Older B7 rows included this generic warning for every slim-v9 unknown status.
+    # A status alone is not a model review request or a source deadline mismatch.
+    generic = '일정 상태를 원문에서 확인해 주세요.'
+    explicit = (getattr(event, 'extraction_metadata', None) or {}).get('review_reason')
+    reasons = [part for part in (event.review_reason or '').split(' / ') if part and (part != generic or explicit == generic)]
+    return ' / '.join(reasons) or None
+
+
+def requires_confirmation(event):
+    return bool(confirmation_reason(event))
+
+
 def registration_error(event):
     if service_excluded(event):
         return '서비스에서 제공하지 않는 일정입니다.'
