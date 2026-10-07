@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-6-luna"
     openai_max_output_tokens: int = 800
+    planner_model: str = ""
+    planner_max_output_tokens: int = 4000
     enrich_model: str = ""
     enrich_max_output_tokens: int = 4000
     enrich_cron: str = "*/30 * * * *"
@@ -83,6 +85,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enrichment_model_default(self):
+        if not self.planner_model:
+            self.planner_model = self.openai_model
         if not self.enrich_model:
             self.enrich_model = self.openai_model
         return self

@@ -227,7 +227,7 @@ def _payload_opportunity(item, mode):
     return output
 
 
-def build_payload(db, user, mode, now=None):
+def _build_context(db, user, mode, now=None):
     if mode not in CANDIDATE_LIMITS:
         raise ValueError('Unknown planner mode')
     now = now or datetime.now(SEOUL)
@@ -245,4 +245,32 @@ def build_payload(db, user, mode, now=None):
         result.update(user={'interests': profile['interests']}, pairwise_conflicts=pairwise_conflicts(candidates),
                       needs_grouping_check=[{'opportunity_id': item['opportunity_id'], 'title': item['title']}
                                             for item in grouping])
-    return result
+    return result, candidates, now
+
+
+def build_payload(db, user, mode, now=None):
+    return _build_context(db, user, mode, now)[0]
+
+
+def build_recommendation_context(db, user, mode, now=None):
+    payload, candidates, now = _build_context(db, user, mode, now)
+    server_items = {}
+    for candidate, prompt_item in zip(candidates, payload['opportunities']):
+        focus = focus_event(candidate)
+        day = focus['action_date'] if focus else None
+        server_items[candidate['opportunity_id']] = {
+            'title': candidate['title'], 'source_url': candidate['source_url'],
+            'focus_event_id': focus['event_id'] if focus else None,
+            **{field: focus[field] if focus else None for field in (
+                'start_date', 'end_date', 'start_time', 'end_time', 'action_date')},
+            'days_until_deadline': (datetime.fromisoformat(day).date() - now.astimezone(SEOUL).date()).days if day else None,
+            'eligibility': candidate['eligibility'], 'interest_match': candidate['interest_match'],
+            'priority_context': candidate['priority_context'],
+            'next_step_type': candidate['priority_context']['next_step_type'],
+        }
+        if mode == 'priority':
+            prompt_item.update(urgency=focus['urgency'] if focus else 'none',
+                              action_window=focus['action_window'] if focus else 'unknown',
+                              is_mandatory=candidate['enrichment']['is_mandatory'],
+                              early_close=_early_close(candidate, focus))
+    return payload, server_items
