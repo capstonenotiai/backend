@@ -5,11 +5,12 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.config import get_settings
-from app.models import Event, User, UserEvent
+from app.models import Event, User, UserEvent, UserNotice
 from app.schemas import EventOut
 from app.timeutil import as_aware, now_local, to_local
 from app.services.review import registration_error
-from app.services.display_rules import HIDDEN_TYPES, representative
+from app.services.display_rules import HIDDEN_TYPES, representative, service_excluded
+from app.services.user_schedule import effective_event
 
 
 def parse_event_id(value: str | int) -> int:
@@ -34,8 +35,10 @@ def get_user_event(db: Session, user: User, event: Event) -> UserEvent:
     return state
 
 
-def to_event_out(event: Event, state: UserEvent | None) -> EventOut:
+def to_event_out(event: Event, state: UserEvent | None, dismissed=False) -> EventOut:
     new_since = now_local() - timedelta(days=get_settings().new_event_days)
+    shared = event
+    event = effective_event(shared, state)
     return EventOut(
         id=str(event.id),
         title=event.title,
@@ -43,19 +46,22 @@ def to_event_out(event: Event, state: UserEvent | None) -> EventOut:
         end_date=event.end_date or "",
         location=event.location or "",
         detail=event.detail or "",
-        source=event.source,
+        source=shared.source,
         source_url=event.source_url or "",
-        category=event.category,
-        is_new=as_aware(event.collected_at) >= new_since,
+        category=shared.category,
+        is_new=as_aware(shared.collected_at) >= new_since,
         registered=bool(state and state.registered),
         bookmarked=bool(state and state.bookmarked),
-        collected_at=to_local(event.collected_at).isoformat(timespec="seconds"),
+        collected_at=to_local(shared.collected_at).isoformat(timespec="seconds"),
         review_status=event.review_status,
         review_reason=event.review_reason,notice_id=event.notice_id,event_type=event.event_type,
         start_time=event.start_time,end_time=event.end_time,timezone=event.timezone,
         attendance_mode=event.attendance_mode,schedule_status=event.schedule_status,revision=event.revision,
         can_register=registration_error(event) is None,registration_reason=registration_error(event),
         sync_status=state.sync_status if state else 'none',
+        ai_extracted=shared.ai_extracted, review_required=bool(shared.review_reason),
+        action_status=state.action_status if state else 'pending', dismissed=dismissed,
+        user_modified=bool(state and state.overrides),
     )
 
 
@@ -69,7 +75,7 @@ def _visible_rows(db, user, enabled_sources=None):
     disabled = [source for source, on in (enabled_sources or {}).items() if on is False]
     if disabled:
         query = query.where(Event.source.not_in(disabled))
-    return list(db.execute(query).all())
+    return [(event, state) for event, state in db.execute(query).all() if not service_excluded(event)]
 
 
 def notice_events(db, event):
@@ -85,7 +91,10 @@ def event_detail(db, user, event_id):
              if event.id == anchor.id or (anchor.notice_id is not None and event.notice_id == anchor.notice_id)]
     if not group or not any(event.id == anchor.id for event, _ in group):
         raise HTTPException(404, '공개된 일정을 찾을 수 없습니다.')
-    return {'notice_id': anchor.notice_id, 'events': [to_event_out(event, state) for event, state in group]}
+    notice_state = db.get(UserNotice, (user.id, anchor.notice_id)) if anchor.notice_id else None
+    dismissed = bool(notice_state and notice_state.dismissed)
+    return {'notice_id': anchor.notice_id, 'dismissed': dismissed,
+            'events': [to_event_out(event, state, dismissed) for event, state in group]}
 
 
 def calendar_events(db, user):
@@ -93,7 +102,8 @@ def calendar_events(db, user):
     return [to_event_out(event, state) for event, state in _visible_rows(db, user) if state and state.registered]
 
 
-def list_events(db: Session, user: User, enabled_sources: dict[str, bool] | None = None) -> list[EventOut]:
+def list_events(db: Session, user: User, enabled_sources: dict[str, bool] | None = None,
+                include_dismissed: bool = False) -> list[EventOut]:
     """
     - 사용자 설정에서 끈 출처(enabled_sources[x] == False)는 제외
     - 공지별 가장 가까운 미마감 접수 1건, 접수가 없으면 본행사 1건
@@ -105,23 +115,27 @@ def list_events(db: Session, user: User, enabled_sources: dict[str, bool] | None
     cutoff_time = (now_local() - retention).astimezone(timezone.utc)
 
     groups = {}
+    dismissed_notices = set(db.scalars(select(UserNotice.notice_id).where(
+        UserNotice.user_id == user.id, UserNotice.dismissed.is_(True))))
     for event, state in _visible_rows(db, user, enabled_sources):
+        if not include_dismissed and event.notice_id in dismissed_notices:
+            continue
         key = ('notice', event.notice_id) if event.notice_id is not None else ('event', event.id)
         groups.setdefault(key, []).append((event, state))
     output = []
     for rows in groups.values():
         # Choose before retention filtering: a retained main event cannot revive closed applications.
-        chosen = representative([event for event, _ in rows], now_local())
+        chosen = representative([effective_event(event, state) for event, state in rows], now_local())
         if chosen is None:
             continue
-        state = next(state for event, state in rows if event.id == chosen.id)
+        shared, state = next((event, state) for event, state in rows if event.id == chosen.id)
         bookmarked = any(state and state.bookmarked for _, state in rows)
         registered = bool(state and state.registered)
         if not (chosen.end_date >= cutoff_date or
-                (not chosen.end_date and as_aware(chosen.collected_at) >= cutoff_time) or
+                (not chosen.end_date and as_aware(shared.collected_at) >= cutoff_time) or
                 registered or bookmarked):
             continue
-        item = to_event_out(chosen, state)
+        item = to_event_out(shared, state, chosen.notice_id in dismissed_notices)
         item.bookmarked = bookmarked
         output.append(item)
     return sorted(output, key=lambda item: (item.end_date or '9999', int(item.id)))

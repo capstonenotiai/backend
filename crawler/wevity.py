@@ -13,6 +13,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from crawler.base import soup, clean_text
+from app.services.notice_metadata import publication_from_metadata, iso_publication
 
 try:
     from curl_cffi import requests as cffi_requests
@@ -79,12 +80,15 @@ def parse_detail_page(ix: int) -> dict | None:
         raw = content_el.get_text(separator="\n")
         for line in raw.split("\n"):
             m = re.match(
-                r"^(분야|응모대상|주최|주관|기간|접수기간|행사기간|장소|행사장소|시상내역|후원)\s*[:\s]\s*(.+)",
+                r"^(분야|응모대상|주최|주관|기간|접수기간|행사기간|장소|행사장소|시상내역|후원|작성일|등록일|게시일)\s*[:\s]\s*(.+)",
                 line.strip(),
             )
             if m:
                 meta[m.group(1)] = m.group(2).strip()
     result["meta"] = meta
+    published = bs.select_one('meta[property="article:published_time"], meta[itemprop="datePublished"], time[itemprop="datePublished"][datetime], .published time[datetime]')
+    result['published_at'] = publication_from_metadata(meta) or (
+        iso_publication(published.get('content') or published.get('datetime')) if published else None)
 
     # 본문
     for tag in bs.select("script, style, .ad, .banner, nav, footer, .sns-wrap"):

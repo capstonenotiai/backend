@@ -15,7 +15,7 @@ def candidate():
              'start_time': '14:00', 'end_time': '15:00', 'location': 'S4-1동 101호', 'attendance_mode': 'offline', 'schedule_status': 'confirmed'}]}}
 
 
-def test_candidate_bridge_never_auto_approves(db):
+def test_valid_candidate_is_automatically_public(db):
     raw = candidate()
     class Extractor:
         name = 'model_api'
@@ -25,13 +25,13 @@ def test_candidate_bridge_never_auto_approves(db):
     assert extract_pending(db, Extractor()) == 1
     events = db.scalars(select(Event).where(Event.notice_id == notice.id)).all()
     assert len(events) == 2
-    assert all(e.review_status == 'needs_review' for e in events)
+    assert all(e.review_status == 'auto' and e.ai_extracted for e in events)
     assert events[0].location == '' and events[0].end_time == '18:00'
     assert events[1].location == 'S4-1동 101호'
     assert notice.extraction_result == raw
 
 
-@pytest.mark.parametrize('change', [{'status': 'invalid'}, {'review_required': False}, {'validation_errors': ['generation_timeout']}])
+@pytest.mark.parametrize('change', [{'status': 'invalid'}, {'review_required': None}, {'validation_errors': ['generation_timeout']}])
 def test_invalid_envelope_rejected(change):
     raw = candidate(); raw.update(change)
     with pytest.raises(ValueError): parse_model_response(raw, '공지')
@@ -78,6 +78,6 @@ def test_shared_token_header_and_native_detail(monkeypatch):
     monkeypatch.setattr(httpx, 'post', post)
     result = ModelApiExtractor().extract('공지', '본문')
     assert result.events[0].detail == '원래 5필드 요약'
-    assert result.events[0].review_status == 'needs_review'
+    assert result.events[0].review_status == 'auto'
     assert calls[0]['headers'] == {'X-Model-Token':'test-only-not-a-real-secret'}
     assert calls[0]['follow_redirects'] is False

@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 
 from app.models import Event, Notice, ReviewLog, UserEvent
 from app.services.category import categorize
+from app.services.display_rules import service_excluded
 
 EDIT_FIELDS = ('title','start_date','end_date','start_time','end_time','timezone',
                'location','detail','event_type','attendance_mode','schedule_status')
@@ -67,18 +68,20 @@ def snapshot(event):
 
 
 def registration_error(event):
-    if event.event_type == 'result':
-        return '결과 발표 일정은 서비스에서 제공하지 않습니다.'
+    if service_excluded(event):
+        return '서비스에서 제공하지 않는 일정입니다.'
     if event.review_status not in ('auto','approved'):
         return '관리자 검토가 완료되지 않았거나 제외된 일정입니다.'
     if event.schedule_status=='cancelled': return '취소된 일정입니다.'
-    if event.schedule_status=='unknown': return '일정 상태 확인이 필요합니다.'
+    if event.schedule_status=='unknown' and not getattr(event, 'ai_extracted', False):
+        return '일정 상태 확인이 필요합니다.'
     try: EventEdit(**{k:getattr(event,k) for k in EDIT_FIELDS})
     except ValueError: return '날짜·시각·장소 정보를 확인해야 합니다.'
     if not event.end_date: return '종료일 또는 마감일이 확인되지 않았습니다.'
     if event.start_time and not event.end_time and event.start_date != event.end_date:
         return '여러 날 일정의 종료 시각 확인이 필요합니다.'
-    if event.end_time and not event.start_time and event.start_date and event.start_date!=event.end_date:
+    if (event.end_time and not event.start_time and event.start_date and event.start_date!=event.end_date
+            and event.event_type not in ('application', 'submission')):
         return '여러 날 일정의 시작 시각 확인이 필요합니다.'
     return None
 

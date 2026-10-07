@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     model_api_url: str = ""
     # Shared X-Model-Token; keep only in the local environment/.env, never in logs.
     model_api_token: str = ""
+    extraction_max_attempts: int = 3
     # capstonenotiai/model repo 로컬 경로 — EXTRACTOR=gpt 일 때 SYSTEM_PROMPT/postprocess 재사용 (크롤러와는 무관)
     model_repo_path: str = ""
 

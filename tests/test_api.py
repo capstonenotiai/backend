@@ -19,6 +19,7 @@ def test_events_match_frontend_contract(client):
         "category", "is_new", "registered", "bookmarked", "collected_at", "review_status",
         "review_reason","notice_id","event_type","start_time","end_time","timezone",
         "attendance_mode","schedule_status","revision","can_register","registration_reason","sync_status",
+        "ai_extracted", "review_required", "action_status", "dismissed", "user_modified",
     }
     assert set(events[0]) == keys
     assert all(isinstance(event["id"], str) for event in events)
@@ -142,7 +143,7 @@ def test_existing_db_without_alembic_is_stamped_not_recreated(tmp_path):
         run_migrations(conn)
     with engine.connect() as conn:
         assert "alembic_version" in inspect(conn).get_table_names()
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0003"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0004"
         assert conn.execute(text("SELECT name FROM users")).scalar() == "kept"
 
 

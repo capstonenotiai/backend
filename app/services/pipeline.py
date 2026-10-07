@@ -8,6 +8,8 @@ import json
 import logging
 import subprocess
 import sys
+import inspect
+import httpx
 from dataclasses import asdict
 from collections import Counter
 from collections.abc import Iterable
@@ -20,7 +22,8 @@ from app.config import get_settings
 from app.models import CrawlRun, Event, Notice, utcnow
 from app.schemas import SOURCE_IDS
 from app.services.category import categorize
-from app.services.extractor import ExtractionResult, Extractor, get_extractor
+from app.services.extractor import ExtractionResult, Extractor, RetryableExtraction, get_extractor
+from app.services.notice_metadata import iso_publication, publication_from_metadata, application_deadline
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +41,10 @@ def import_records(db: Session, records: Iterable[dict]) -> Counter:
             log.warning("URL 이 너무 길어 건너뜀: %s...", url[:80])
             continue
         seen.add(url)
+        meta = record.get('meta') if isinstance(record.get('meta'), dict) else {}
+        published_at = iso_publication(record.get('published_at')) or publication_from_metadata(meta)
+        if not published_at and site == 'cbnu':
+            published_at = iso_publication(record.get('list_date_raw'))
         db.add(
             Notice(
                 site=site,
@@ -45,6 +52,8 @@ def import_records(db: Session, records: Iterable[dict]) -> Counter:
                 source_url=url,
                 title_raw=(record.get("title_raw") or "").strip(),
                 raw_text=record.get("raw_text") or "",
+                published_at=published_at, source_metadata=meta,
+                application_end_date=application_deadline(meta),
             )
         )
         added[site] += 1
@@ -70,38 +79,55 @@ def read_jsonl(path: str | Path) -> list[dict]:
 def extract_pending(db: Session, extractor: Extractor | None = None, limit: int | None = None) -> int:
     """아직 event 가 없는 notice 를 추출해 events 로 저장. 처리 건수 반환"""
     extractor = extractor or get_extractor()
-    query = select(Notice).where(Notice.extraction_state=='pending',~Notice.events.any()).order_by(Notice.id)
+    states = ('pending', 'retry_pending')
+    maximum = max(1, get_settings().extraction_max_attempts)
+    query = select(Notice).where(Notice.extraction_state.in_(states),
+        Notice.extraction_attempts < maximum, ~Notice.events.any()).order_by(Notice.id)
     if limit:
         query = query.limit(limit)
 
     count = 0
     for notice in db.scalars(query).all():
-        claimed=db.execute(update(Notice).where(Notice.id==notice.id,Notice.extraction_state=='pending')
-            .values(extraction_state='processing'))
+        claimed=db.execute(update(Notice).where(Notice.id==notice.id,Notice.extraction_state.in_(states),
+                Notice.extraction_attempts < maximum)
+            .values(extraction_state='processing', extraction_attempts=Notice.extraction_attempts+1))
         db.commit()
         if claimed.rowcount!=1: continue
         try:
-            result = extractor.extract(notice.title_raw, notice.raw_text)
+            # Legacy injectable extractors are still usable without altering their two-argument API.
+            if 'reference_time' in inspect.signature(extractor.extract).parameters:
+                result = extractor.extract(notice.title_raw, notice.raw_text, reference_time=notice.published_at)
+            else:
+                result = extractor.extract(notice.title_raw, notice.raw_text)
             if not isinstance(result,ExtractionResult):
                 result=ExtractionResult([result],{'legacy_prediction':asdict(result)})
             notice.extraction_result=result.raw
             for extracted in result.events:
+                if extractor.name == 'model_api':
+                    extracted.review_status = 'auto'
+                    if (extracted.event_type in ('application', 'submission') and notice.application_end_date
+                            and extracted.end_date != notice.application_end_date):
+                        reason = '사이트 접수 마감일과 AI 마감일이 다릅니다. 원문 확인이 필요합니다.'
+                        extracted.review_reason = ' / '.join(filter(None, [extracted.review_reason, reason]))
                 db.add(Event(notice_id=notice.id,source=notice.site,source_url=notice.source_url,
                     **asdict(extracted),category=categorize(notice.site,notice.board),
-                    extractor=extractor.name,collected_at=notice.crawled_at))
+                    extractor=extractor.name,collected_at=notice.crawled_at,
+                    ai_extracted=extractor.name in ('model_api', 'gpt')))
             # Store empty success separately; it is not an unprocessed notice.
-            notice.extraction_state='needs_review' if not result.events or any(
-                e.review_status=='needs_review' for e in result.events) else 'extracted'
+            notice.extraction_state = ('no_events' if not result.events else
+                'needs_review' if any(e.review_status=='needs_review' for e in result.events) else 'extracted')
             notice.extraction_error=None
             notice.revision+=1
             db.commit()
         except Exception as error:  # noqa: BLE001 — 한 건 실패로 전체를 멈추지 않음
             db.rollback()
-            notice.extraction_state='failed'
-            notice.extraction_error=f'{type(error).__name__}: {str(error)[:500]}'
+            retryable = isinstance(error, (RetryableExtraction, httpx.TransportError))
+            notice.extraction_state = 'retry_pending' if retryable and notice.extraction_attempts < maximum else 'failed'
+            notice.extraction_error = ('모델 연결 실패: 재시도 대기' if notice.extraction_state == 'retry_pending'
+                else '추출 실패: ' + type(error).__name__)
             if hasattr(error,'raw'): notice.extraction_result=error.raw
             db.commit()
-            log.warning("추출 실패 notice=%s: %s", notice.id, error)
+            log.warning("추출 실패 notice=%s: %s", notice.id, type(error).__name__)
             continue
         count += 1
     return count
@@ -143,8 +169,10 @@ def mark_interrupted_runs(db: Session) -> int:
     서버 시작 시 호출. 수집 도중 서버가 꺼져 'running' 으로 남은 기록을 실패로 정리
     (그대로 두면 대시보드에 계속 '수집 중'으로 보임)
     """
-    db.execute(update(Notice).where(Notice.extraction_state=='processing').values(
-        extraction_state='failed',extraction_error='서버 중단: 원문과 추출 상태 확인 필요'))
+    interrupted = db.scalars(select(Notice).where(Notice.extraction_state=='processing')).all()
+    for notice in interrupted:
+        notice.extraction_state = 'retry_pending' if notice.extraction_attempts < max(1, get_settings().extraction_max_attempts) else 'failed'
+        notice.extraction_error = '서버 중단: 다음 추출 실행에서 재시도'
     runs = db.scalars(select(CrawlRun).where(CrawlRun.status == "running")).all()
     for run in runs:
         run.status, run.finished_at, run.message = "failed", utcnow(), "서버 재시작으로 수집이 중단됨"

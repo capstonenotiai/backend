@@ -119,7 +119,7 @@ def test_empty_extraction_not_repeated(db):
             return ExtractionResult([], {'events': []})
     assert extract_pending(db, Empty()) == 1
     assert extract_pending(db, Empty()) == 0
-    assert item.extraction_state == 'needs_review'
+    assert item.extraction_state == 'no_events'
 
 
 def test_v2_multiple_events_and_time_body(db):

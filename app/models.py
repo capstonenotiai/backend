@@ -57,6 +57,10 @@ class Notice(Base):
     title_raw: Mapped[str] = mapped_column(Text)
     raw_text: Mapped[str] = mapped_column(Text, default="")
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    published_at: Mapped[str | None] = mapped_column(String(10))
+    source_metadata: Mapped[dict | None] = mapped_column(JSON)
+    application_end_date: Mapped[str | None] = mapped_column(String(10))
+    extraction_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     extraction_state: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
     extraction_result: Mapped[dict | None] = mapped_column(JSON)
@@ -90,6 +94,7 @@ class Event(Base):
     schedule_status: Mapped[str] = mapped_column(String(24), default="confirmed", server_default="confirmed")
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     extraction_metadata: Mapped[dict | None] = mapped_column(JSON)
+    ai_extracted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     category: Mapped[str | None] = mapped_column(String(32))
     review_status: Mapped[str] = mapped_column(String(16), default="needs_review")  # auto | needs_review
@@ -112,10 +117,29 @@ class UserEvent(Base):
     registered: Mapped[bool] = mapped_column(Boolean, default=False)
     google_event_id: Mapped[str | None] = mapped_column(String(255))
     bookmarked: Mapped[bool] = mapped_column(Boolean, default=False)
+    action_status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    overrides: Mapped[dict | None] = mapped_column(JSON)
     synced_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     sync_status: Mapped[str] = mapped_column(String(24), default="none", server_default="none")
     sync_error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserNotice(Base):
+    __tablename__ = "user_notices"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), primary_key=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+
+class EventReport(Base):
+    __tablename__ = "event_reports"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(24))
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ReviewLog(Base):

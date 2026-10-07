@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crawler.base import get, soup, clean_text
+from app.services.notice_metadata import publication_from_metadata, iso_publication
 
 BASE = "http://contestkorea.com"
 LIST_URL = BASE + "/sub/list.php?int_gbn=1&Txt_bcode={code}&page={page}"
@@ -122,6 +123,9 @@ def parse_detail_page(url: str) -> dict | None:
                 meta[key] = val
 
     result["meta"] = meta
+    published = bs.select_one('meta[property="article:published_time"], meta[itemprop="datePublished"], time[itemprop="datePublished"][datetime], .published time[datetime]')
+    result['published_at'] = publication_from_metadata(meta) or (
+        iso_publication(published.get('content') or published.get('datetime')) if published else None)
 
     # 본문
     for tag in bs.select("script, style, .ad, nav, header, footer, .relate, .share"):

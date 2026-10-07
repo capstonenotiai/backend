@@ -2,6 +2,7 @@
 API 요청/응답 형태 — 프론트(jaeyeongt/NotiAi) src/services/*.js 계약에 맞춤.
 """
 from pydantic import BaseModel, Field
+from app.services.user_schedule import ScheduleOverrides
 
 # 프론트 src/config/aiModes.js / sources.js 의 id 와 같아야 함
 AI_MODE_IDS = ("study", "explorer", "balanced")
@@ -36,6 +37,11 @@ class EventOut(BaseModel):
     can_register: bool = False
     registration_reason: str | None = None
     sync_status: str = 'none'
+    ai_extracted: bool = False
+    review_required: bool = False
+    action_status: str = 'pending'
+    dismissed: bool = False
+    user_modified: bool = False
 
 
 class Profile(BaseModel):
@@ -58,7 +64,12 @@ class Preferences(BaseModel):
     auto_mode_recommend: bool = True
 
 
-class RegisterIn(BaseModel):
+class ConfirmationIn(BaseModel):
+    overrides: dict[str, ScheduleOverrides] = Field(default_factory=dict)
+    confirmed: bool = False
+
+
+class RegisterIn(ConfirmationIn):
     event_id: str | int
 
 

@@ -3,8 +3,17 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 APPLICATION_TYPES = frozenset({"application", "submission"})
-HIDDEN_TYPES = frozenset({"result"})
+HIDDEN_TYPES = frozenset({"result", "service_change", "award", "survey"})
 SEOUL = ZoneInfo("Asia/Seoul")
+
+
+def service_excluded(event):
+    if event.event_type in HIDDEN_TYPES:
+        return True
+    # The slim contract has only four types; obvious non-service event labels still stay hidden.
+    compact = ''.join(event.title.split()).replace('(', '').replace(')', '')
+    return event.event_type == 'event' and any(label in compact for label in (
+        '결과발표', '시상식', '선택설문', '설문선택', '시스템중단', '서비스중단안내'))
 
 
 def deadline(event):
@@ -25,7 +34,7 @@ def is_open(event, now):
 
 def representative(events, now):
     public = [event for event in events if event.review_status in ("auto", "approved")
-              and event.event_type not in HIDDEN_TYPES and event.schedule_status != "cancelled"]
+              and not service_excluded(event) and event.schedule_status != "cancelled"]
     applications = [event for event in public if event.event_type in APPLICATION_TYPES]
     if applications:
         active = [event for event in applications if is_open(event, now)]

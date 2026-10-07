@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crawler.base import get, soup, clean_text
+from app.services.notice_metadata import publication_from_metadata, iso_publication
 
 BASE     = "https://software.cbnu.ac.kr"
 LIST_URL = BASE + "/index.php?mid=sub0401&page={page}"
@@ -123,6 +124,7 @@ def parse_detail_page(url: str) -> dict | None:
         if th and td:
             meta[th.get_text(strip=True)] = td.get_text(separator=" ", strip=True)
     result["meta"] = meta
+    result['published_at'] = publication_from_metadata(meta)
 
     # 본문
     for tag in bs.select("script, style, nav, header, footer, .files_area, .comment_area"):
@@ -200,6 +202,7 @@ def crawl(max_pages: int = 50, existing_urls: set = None,
                         "list_category": item.get("list_category", ""),
                         "board": CATEGORY_BOARD.get(item.get("list_category", ""), board_name),
                     })
+                    detail['published_at'] = detail.get('published_at') or iso_publication(item.get('list_date_raw'))
                     results.append(detail)
                     existing_urls.add(url)
                     new_count += 1

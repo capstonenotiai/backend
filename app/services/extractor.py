@@ -70,11 +70,17 @@ class InvalidExtraction(ValueError):
         self.raw=raw
 
 
+class RetryableExtraction(InvalidExtraction):
+    """Transport failure eligible for a later extraction run."""
+
+
 def parse_model_response(data: dict, title: str) -> ExtractionResult:
     from app.services.review import EventEdit
     if not isinstance(data,dict): raise ValueError('Model response must be an object')
     if data.get('schema_version') == 'notiai-model-candidate-v1':
-        if data.get('status') != 'candidate' or data.get('validation_errors') != [] or data.get('review_required') is not True:
+        if data.get('metadata') is not None and not isinstance(data['metadata'], dict):
+            raise ValueError('Invalid model metadata')
+        if data.get('status') != 'candidate' or data.get('validation_errors') != [] or not isinstance(data.get('review_required'), bool):
             raise ValueError('Invalid or incomplete model generation')
         candidate = data.get('candidate')
         if not isinstance(candidate, dict) or set(candidate) != {'events'} or not isinstance(candidate['events'], list):
@@ -83,20 +89,40 @@ def parse_model_response(data: dict, title: str) -> ExtractionResult:
         fields = {'title','event_type','start_date','end_date','start_time','end_time','location','attendance_mode','schedule_status'}
         results = []
         for item in candidate['events']:
-            if not isinstance(item, dict) or set(item) != fields:
+            if not isinstance(item, dict) or not fields <= set(item) or set(item) - fields - {'review_reason', 'review_required'}:
                 raise ValueError('Invalid candidate fields')
-            if any(value is not None and not isinstance(value, str) for value in item.values()):
+            if any(item[key] is not None and not isinstance(item[key], str) for key in fields):
                 raise ValueError('Invalid candidate value type')
-            if item['event_type'] != 'event' and item['attendance_mode'] != 'not_applicable':
+            if 'review_reason' in item and item['review_reason'] is not None and not isinstance(item['review_reason'], str):
+                raise ValueError('Invalid review reason')
+            if 'review_required' in item and not isinstance(item['review_required'], bool):
+                raise ValueError('Invalid review flag')
+            if item['event_type'] not in ('application','submission','event','interview'):
+                raise ValueError('Unsupported slim-v9 event type')
+            if item['event_type'] in ('application','submission') and item['attendance_mode'] != 'not_applicable':
                 raise ValueError('Invalid non-event attendance mode')
-            value = EventEdit(**{key: val if val is not None else '' for key, val in item.items()})
+            value = EventEdit(**{key: item[key] if item[key] is not None else '' for key in fields})
+            if not value.start_date and not value.end_date:
+                continue
             native = data.get('native_prediction')
             if (data.get('metadata') or {}).get('prompt_mode') == 'v10-native' and isinstance(native, dict):
                 detail = native.get('detail', '')
                 if not isinstance(detail, str): raise ValueError('Invalid native detail')
                 value.detail = detail[:DETAIL_MAX]
-            results.append(Extraction(**value.model_dump(exclude={'id'}), review_status='needs_review',
-                review_reason='간소화 모델 후보: 역할·날짜·장소 원문 검토 필요', extraction_metadata=item))
+            metadata = data.get('metadata') or {}
+            reasons = []
+            if item.get('review_reason'):
+                reasons.append(item['review_reason'])
+            elif item.get('review_required'):
+                reasons.append('모델이 원문 확인을 요청했습니다.')
+            if metadata.get('review_required_events'):
+                reasons.append('모델이 날짜·장소 원문 확인을 요청했습니다.')
+            if item['schedule_status'] in ('unknown', 'tentative'):
+                reasons.append('일정 상태를 원문에서 확인해 주세요.')
+            if not value.end_date:
+                reasons.append('종료일 또는 마감일을 원문에서 확인해 주세요.')
+            results.append(Extraction(**value.model_dump(exclude={'id'}), review_status='auto',
+                review_reason=' / '.join(reasons) or None, extraction_metadata=item))
         # This transport is deliberately NOT promoted to the full v2 evidence contract.
         return ExtractionResult(results, data)
     if 'events' not in data:
@@ -104,6 +130,8 @@ def parse_model_response(data: dict, title: str) -> ExtractionResult:
         if not isinstance(pred,dict) or not {'title','start_date','end_date','location','detail'} <= set(pred):
             raise ValueError('Incomplete legacy response')
         result=to_extraction(pred,title)
+        if result.review_status == 'needs_review':
+            raise ValueError('Invalid legacy model dates')
         # The model cannot override a failed deterministic check to auto.
         if data.get('auto_register_status')=='needs_review':
             result.review_status='needs_review'
@@ -137,7 +165,7 @@ def parse_model_response(data: dict, title: str) -> ExtractionResult:
 class Extractor(Protocol):
     name: str
 
-    def extract(self, title: str, body: str) -> Extraction | ExtractionResult: ...
+    def extract(self, title: str, body: str, reference_time: str | None = None) -> Extraction | ExtractionResult: ...
 
 
 def build_user_content(title: str, body: str) -> str:
@@ -204,7 +232,7 @@ def _model_repo_module(name: str):
 class StubExtractor:
     name = "stub"
 
-    def extract(self, title: str, body: str) -> Extraction:
+    def extract(self, title: str, body: str, reference_time: str | None = None) -> Extraction:
         return Extraction(
             title=title.strip(),
             start_date="",
@@ -232,7 +260,7 @@ class GptExtractor:
         postprocess_module = _model_repo_module("src.postprocess")
         self.postprocess = getattr(postprocess_module, "postprocess", None)
 
-    def extract(self, title: str, body: str) -> Extraction:
+    def extract(self, title: str, body: str, reference_time: str | None = None) -> Extraction:
         user_content = build_user_content(title, body)
         response = self.client.chat.completions.create(
             model=self.model,
@@ -267,14 +295,21 @@ class ModelApiExtractor:
         if not self.url:
             raise RuntimeError("EXTRACTOR=model_api 인데 MODEL_API_URL 이 없습니다.")
 
-    def extract(self, title: str, body: str) -> Extraction:
-        response = httpx.post(
-            self.url,
-            json={"title": title, "body": body, "user_content": build_user_content(title, body)},
-            timeout=120,
-            headers={'X-Model-Token': self.token} if self.token else {},
-            follow_redirects=False,  # Do not forward the shared secret to another origin.
-        )
+    def extract(self, title: str, body: str, reference_time: str | None = None) -> ExtractionResult:
+        from app.services.notice_metadata import iso_publication
+        try:
+            response = httpx.post(
+                self.url,
+                json={"title": title, "body": body, "user_content": build_user_content(title, body),
+                      "reference_time": iso_publication(reference_time)},
+                timeout=120,
+                headers={'X-Model-Token': self.token} if self.token else {},
+                follow_redirects=False,  # Never forward the shared secret to another origin.
+            )
+        except httpx.TransportError as exc:
+            raise RetryableExtraction('모델 연결 실패 또는 시간 초과', {'error_type': type(exc).__name__}) from None
+        if response.status_code == 429 or response.status_code >= 500:
+            raise RetryableExtraction('모델 서버 일시 오류', {'status_code': response.status_code})
         try: data = response.json()
         except ValueError as exc:
             raise InvalidExtraction('Model API returned non-JSON', {'status_code': response.status_code,

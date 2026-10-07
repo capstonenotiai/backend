@@ -12,6 +12,8 @@ os.environ["EXTRACTOR"] = "stub"
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["GOOGLE_CLIENT_ID"] = ""
 os.environ["CRAWL_ENABLED"] = "false"
+os.environ["EVENT_RETENTION_DAYS"] = "90"
+os.environ["MODEL_API_TOKEN"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 
