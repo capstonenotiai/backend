@@ -51,9 +51,10 @@ class Profile(BaseModel):
 
 
 class Notifications(BaseModel):
-    d7: bool = True
+    # 마감(본행사는 시작) 3일 전 / 1일 전 알림, 이메일로도 받기
     d3: bool = True
-    new_event: bool = False
+    d1: bool = True
+    email: bool = True
 
 
 class Preferences(BaseModel):

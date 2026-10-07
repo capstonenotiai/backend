@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     crawl_cron: str = "0 9 * * *"
     crawl_max_pages: int = 2
 
+    # 알림 (NOTIFY_ENABLED=true 일 때 NOTIFY_CRON 마다 오늘 보낼 알림 생성 + 이메일 발송)
+    # 9~23시 매시 실행: 9시에 한 번에 만들고, 9시에 서버가 꺼져 있었으면 다음 실행에서 채운다(중복 없음)
+    notify_enabled: bool = False
+    notify_cron: str = "0 9-23 * * *"
+    # "확인 필요" 일정 알림 (정책 6번: 당분간 보내지 않음)
+    notify_review_required: bool = False
+    # 이메일: console(로그만) | smtp | none. Gmail 은 SMTP_USERNAME=주소, SMTP_PASSWORD=앱 비밀번호
+    email_backend: str = "console"
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    email_from: str = ""
+
     # collected_at 이 이 일수 이내면 is_new
     new_event_days: int = 3
     # /api/events 에서 제외하는 기준 (DB 에서 지우지는 않음) — app/services/events.py list_events

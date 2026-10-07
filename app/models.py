@@ -134,6 +134,27 @@ class UserNotice(Base):
     dismissed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
+class Notification(Base):
+    """서비스 안 알림함 + 이메일 발송 기록. 같은 일정·종류·대상 날짜는 한 번만 만든다."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("user_id", "event_id", "kind", "target_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(24))  # deadline_d3 | deadline_d1 | event_d3 | event_d1
+    target_date: Mapped[str] = mapped_column(String(10))  # 알림 기준 날짜 (마감일 / 시작일)
+    title: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | sent | failed | skipped
+    email_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_error: Mapped[str | None] = mapped_column(Text)
+
+
 class EventReport(Base):
     __tablename__ = "event_reports"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

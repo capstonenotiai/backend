@@ -143,7 +143,7 @@ def test_existing_db_without_alembic_is_stamped_not_recreated(tmp_path):
         run_migrations(conn)
     with engine.connect() as conn:
         assert "alembic_version" in inspect(conn).get_table_names()
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0005"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0006"
         assert conn.execute(text("SELECT name FROM users")).scalar() == "kept"
 
 
