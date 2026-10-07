@@ -35,7 +35,10 @@ class Preference(Base):
     __tablename__ = "preferences"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    ai_mode: Mapped[str] = mapped_column(String(32), default="study")
+    ai_mode: Mapped[str] = mapped_column(String(32), default="priority")
+    major: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    grade: Mapped[int | None] = mapped_column(Integer)
+    enrollment_status: Mapped[str] = mapped_column(String(16), default="unknown", server_default="unknown")
     interests: Mapped[list] = mapped_column(JSON, default=list)
     enabled_sources: Mapped[dict] = mapped_column(JSON, default=dict)
     notifications: Mapped[dict] = mapped_column(JSON, default=dict)

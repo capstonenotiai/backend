@@ -1,12 +1,14 @@
 """
 API 요청/응답 형태 — 프론트(jaeyeongt/NotiAi) src/services/*.js 계약에 맞춤.
 """
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 from app.services.user_schedule import ScheduleOverrides
 
 # 프론트 src/config/aiModes.js / sources.js 의 id 와 같아야 함
-AI_MODE_IDS = ("study", "explorer", "balanced")
-DEFAULT_AI_MODE = "study"
+AI_MODE_IDS = ("priority", "discover", "focus")
+DEFAULT_AI_MODE = "priority"
 SOURCE_IDS = ("cbnu", "wevity", "contestkorea")
 
 
@@ -44,7 +46,14 @@ class EventOut(BaseModel):
     user_modified: bool = False
 
 
-class Profile(BaseModel):
+class RecommendationProfile(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    major: str = Field(default='', max_length=255, strict=True)
+    grade: int | None = Field(default=None, ge=1, le=6, strict=True)
+    enrollment_status: Literal['enrolled', 'leave', 'graduated', 'unknown'] = 'unknown'
+
+
+class Profile(RecommendationProfile):
     name: str
     email: str
     is_admin: bool = False

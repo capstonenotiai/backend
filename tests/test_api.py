@@ -143,7 +143,7 @@ def test_existing_db_without_alembic_is_stamped_not_recreated(tmp_path):
         run_migrations(conn)
     with engine.connect() as conn:
         assert "alembic_version" in inspect(conn).get_table_names()
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0006"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0007"
         assert conn.execute(text("SELECT name FROM users")).scalar() == "kept"
 
 
@@ -226,18 +226,18 @@ def test_bookmark(client):
 
 def test_preferences_roundtrip_and_source_filter(client):
     prefs = client.get("/api/user/preferences").json()
-    assert prefs["ai_mode"] == "study"
-    prefs["ai_mode"] = "explorer"
+    assert prefs["ai_mode"] == "priority"
+    prefs["ai_mode"] = "discover"
     prefs["enabled_sources"]["wevity"] = False
     saved = client.put("/api/user/preferences", json=prefs).json()
-    assert saved["ai_mode"] == "explorer"
+    assert saved["ai_mode"] == "discover"
     assert all(e["source"] != "wevity" for e in client.get("/api/events").json())
 
 
 def test_unknown_mode_falls_back(client):
     prefs = client.get("/api/user/preferences").json()
     prefs["ai_mode"] = "removed-mode"
-    assert client.put("/api/user/preferences", json=prefs).json()["ai_mode"] == "study"
+    assert client.put("/api/user/preferences", json=prefs).json()["ai_mode"] == "priority"
 
 
 def test_profile_and_dashboard(client):

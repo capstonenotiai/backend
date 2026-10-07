@@ -1,4 +1,4 @@
-"""Reserved adapter for the future team planner. Deliberately unused by runtime code."""
+"""Event type adapter for deterministic planner payloads."""
 
 
 def to_planner_event_type(event_type: str | None) -> str:

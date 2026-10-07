@@ -30,7 +30,7 @@ def get_or_create_preference(db: Session, user: User) -> Preference:
 
 def to_schema(pref: Preference) -> Preferences:
     return Preferences(
-        ai_mode=pref.ai_mode,
+        ai_mode=pref.ai_mode if pref.ai_mode in AI_MODE_IDS else DEFAULT_AI_MODE,
         interests=pref.interests or [],
         enabled_sources=pref.enabled_sources or {},
         notifications=pref.notifications or {},
