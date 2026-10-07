@@ -14,6 +14,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from crawler.base import soup, clean_text
 from app.services.notice_metadata import publication_from_metadata, iso_publication
+from app.services.category import wevity_board
 
 try:
     from curl_cffi import requests as cffi_requests
@@ -98,6 +99,7 @@ def parse_detail_page(ix: int) -> dict | None:
             if m:
                 meta[m.group(1)] = m.group(2).strip()
     result["meta"] = meta
+    result['board'] = wevity_board(meta) or 'contest'
     published = bs.select_one('meta[property="article:published_time"], meta[itemprop="datePublished"], time[itemprop="datePublished"][datetime], .published time[datetime]')
     result['published_at'] = publication_from_metadata(meta) or (
         iso_publication(published.get('content') or published.get('datetime')) if published else None)

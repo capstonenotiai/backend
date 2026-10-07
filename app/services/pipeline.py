@@ -44,6 +44,11 @@ def import_records(db: Session, records: Iterable[dict]) -> Counter:
             continue
         seen.add(url)
         meta = record.get('meta') if isinstance(record.get('meta'), dict) else {}
+        meta = dict(meta)
+        if site == 'contestkorea':
+            for key in ('category_code', 'category'):
+                if record.get(key):
+                    meta[key] = record[key]
         published_at = iso_publication(record.get('published_at')) or publication_from_metadata(meta)
         if not published_at and site == 'cbnu':
             published_at = iso_publication(record.get('list_date_raw'))

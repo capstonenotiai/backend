@@ -5,7 +5,7 @@ ContestKorea 크롤러
 
 주요 카테고리 코드:
   030110001 - 공모전 전체
-  030120001 - 대외활동
+  04... - 대외활동
 """
 import os
 import re
@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crawler.base import get, soup, clean_text
 from app.services.notice_metadata import publication_from_metadata, iso_publication
+from app.services.category import contestkorea_board
 
 BASE = "http://contestkorea.com"
 LIST_URL = BASE + "/sub/list.php?int_gbn=1&Txt_bcode={code}&page={page}"
@@ -109,6 +110,9 @@ def parse_detail_page(url: str) -> dict | None:
 
     bs = soup(resp)
     result = {"source_url": url, "site": SITE}
+    code = parse_qs(urlparse(url).query).get('Txt_bcode', [''])[0]
+    result['category_code'] = code
+    result['board'] = contestkorea_board(code) or 'contest'
 
     # 제목: 첫 번째 h1 (의미 있는 텍스트)
     title_raw = ""
@@ -192,6 +196,14 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
     existing_urls = existing_urls or set()
     categories = categories or list(CATEGORIES.values())
     results = []
+    # Txt_bcode가 달라도 str_no가 같으면 같은 글이다. 처음 수집된 분류를 유지한다.
+    def post_id(url):
+        return parse_qs(urlparse(url).query).get('str_no', [None])[0]
+
+    known_ids = {post_id(url) for url in existing_urls if 'contestkorea.com' in urlparse(url).netloc}
+    known_ids.discard(None)
+    collected_codes = {}
+    cross_category_ids = set()
 
     for code in categories:
         cat_name = {v: k for k, v in CATEGORIES.items()}.get(code, code)
@@ -208,7 +220,10 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
             new_count = 0
             for item in items:
                 url = item["source_url"]
-                if url in existing_urls:
+                number = post_id(url)
+                if url in existing_urls or number and number in known_ids:
+                    if number in collected_codes and collected_codes[number] != code:
+                        cross_category_ids.add(number)
                     continue
                 detail = parse_detail_page(url)
                 if detail:
@@ -216,9 +231,14 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
                         "title_raw": detail.get("title_raw") or item["title_raw"],
                         "list_date_raw": item.get("list_date_raw", ""),
                         "category": cat_name,
+                        "category_code": code,
+                        "board": contestkorea_board(code) or 'contest',
                     })
                     results.append(detail)
                     existing_urls.add(url)
+                    if number:
+                        known_ids.add(number)
+                        collected_codes[number] = code
                     new_count += 1
                     print(f"    ✓ {detail['title_raw'][:50]}")
 
@@ -226,7 +246,7 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
                 print(f"  [종료] 기존 데이터와 전부 중복")
                 break
 
-    print(f"[ContestKorea] 수집 완료: {len(results)}건")
+    print(f"[ContestKorea] 수집 완료: {len(results)}건, 목록 간 중복 글 {len(cross_category_ids)}건 (먼저 수집한 분류 유지)")
     return results
 
 
