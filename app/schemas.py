@@ -50,7 +50,8 @@ class RecommendationProfile(BaseModel):
     model_config = ConfigDict(extra='forbid')
     major: str = Field(default='', max_length=255, strict=True)
     grade: int | None = Field(default=None, ge=1, le=6, strict=True)
-    enrollment_status: Literal['enrolled', 'leave', 'graduated', 'unknown'] = 'unknown'
+    # grade 6: 6년제 학과(약학·의학 등)까지 허용
+    enrollment_status: Literal['enrolled', 'expected_graduation', 'leave', 'graduated', 'unknown'] = 'unknown'
 
 
 class Profile(RecommendationProfile):

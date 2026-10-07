@@ -105,7 +105,7 @@ def evidence_valid(evidence, source):
 
 def empty_enrichment(status='missing'):
     return {'notice_kind': 'normal', 'grouping_review_required': False,
-            'grouping_review_reason': '', 'enrichment_status': status,
+            'grouping_review_reason': '', 'enrichment_status': status, 'low_confidence_reasons': [],
             'is_mandatory': False, 'facts': [], 'events': []}
 
 
@@ -119,8 +119,10 @@ def validate_enrichment(output, notice_id, title_raw, raw_text, event_ids):
     def validated(item, schema):
         return _matches_schema(item, schema) and evidence_valid(item['evidence'], source)
 
-    def critical_failure():
+    def critical_failure(reason):
         result['enrichment_status'] = 'low_confidence'
+        if reason not in result['low_confidence_reasons']:
+            result['low_confidence_reasons'].append(reason)
 
     def fact(prefix, kind, value, evidence):
         counters[prefix] += 1
@@ -136,7 +138,7 @@ def validate_enrichment(output, notice_id, title_raw, raw_text, event_ids):
             valid = valid and bool(re.search(r'반드시|필수|의무', item['evidence']))
         if (key == 'notice_kind' and value not in (None, 'normal')) or (key == 'is_mandatory' and value is True):
             if not valid:
-                critical_failure()
+                critical_failure(key + '_evidence')
         if valid:
             result[key] = value
             if key == 'is_mandatory' and value:
@@ -151,7 +153,7 @@ def validate_enrichment(output, notice_id, title_raw, raw_text, event_ids):
         for item in items if isinstance(items, list) else []:
             valid = validated(item, properties[key]['items']) and bool(item['value'].strip())
             if key == 'requirements' and isinstance(item, dict) and item.get('required') is True and not valid:
-                critical_failure()
+                critical_failure('required_requirement_evidence')
             if valid:
                 value = ({name: item[name] for name in ('type', 'value', 'required')}
                          if key == 'requirements' else item['value'])
@@ -288,7 +290,8 @@ def enrich_pending(db, client=None, limit=None, now=None):
             validated = validate_enrichment(output, notice_id, notice.title_raw, notice.raw_text,
                                            [event['event_id'] for event in payload['events']])
             enrichment.facts = {'facts': validated['facts'], 'events': validated['events'],
-                                'is_mandatory': validated['is_mandatory']}
+                                'is_mandatory': validated['is_mandatory'],
+                                'low_confidence_reasons': validated['low_confidence_reasons']}
             for key in ('notice_kind', 'grouping_review_required', 'grouping_review_reason', 'enrichment_status'):
                 setattr(enrichment, key, validated[key])
             enrichment.state, enrichment.error, enrichment.next_attempt_at = 'done', None, None
@@ -340,6 +343,7 @@ def get_enrichment(db, notice_id):
         result[key] = getattr(enrichment, key)
     stored = enrichment.facts or {}
     result['is_mandatory'] = stored.get('is_mandatory', False)
+    result['low_confidence_reasons'] = stored.get('low_confidence_reasons', [])
     # No longer public / removed event IDs must not become planner evidence.
     public_ids = {f'e{event.id}' for event in _public_events(db, notice_id)}
     result['events'] = [event for event in stored.get('events', []) if event['event_id'] in public_ids]

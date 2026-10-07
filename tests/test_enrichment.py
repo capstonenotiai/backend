@@ -504,3 +504,12 @@ def test_finished_notices_are_not_enriched(db, settings):
     assert enrich.enrich_pending(db, client, now=NOW) == 1
     assert db.get(enrich.NoticeEnrichment, finished.id) is None
     assert db.get(enrich.NoticeEnrichment, upcoming_main.id).state == 'done'
+
+
+def test_low_confidence_reasons_are_recorded():
+    output = output_for('e1')
+    output['is_mandatory'] = claim(True, '원문에 없는 필수 문장')
+    output['requirements'][0]['evidence'] = '원문에 없는 조건'
+    result = validate(output)
+    assert result['enrichment_status'] == 'low_confidence'
+    assert result['low_confidence_reasons'] == ['is_mandatory_evidence', 'required_requirement_evidence']

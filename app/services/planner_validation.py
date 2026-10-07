@@ -1,4 +1,29 @@
 """Repair model judgments without mutating payloads, facts or user state."""
+import re
+
+FACT_ID = re.compile(r'\bo\d+\.[a-z_]+\d+\b')
+ID_GROUP = re.compile(r'\s*[\[(]\s*(?:[oe]\d+(?:\.[a-z_]+\d+)?\s*[,/]?\s*)+[\])]')
+BARE_ID = re.compile(r'\b[oe]\d+(?:\.[a-z_]+\d+)?\b')
+CATEGORY_WORDS = {'career': '진로/취업', 'contest': '공모전', 'activity': '대외활동',
+                  'scholarship': '장학', 'academic': '학사'}
+CATEGORY_CODE = re.compile(r'\b(' + '|'.join(CATEGORY_WORDS) + r')\b')
+INTERNAL_CODE = re.compile(r'\b(act|prepare|verify|monitor|strong_match|potential_match|not_recommended|'
+                           r'needs_check|low_confidence|eligible|ineligible|application_confirmation|'
+                           r'action_window|stronger_alternative|schedule_conflict|information_uncertain)\b')
+
+
+def clean_text(text, allowed_refs):
+    """
+    사용자에게 보이는 문장에서 ID·내부 코드값을 걷어낸다.
+    반환: (문장 | None(코드값이 남아 기본 문장으로 바꿔야 함), 문장에서 찾은 유효 fact_id, 변경 여부)
+    """
+    refs = [ref for ref in FACT_ID.findall(text) if ref in allowed_refs]
+    cleaned = BARE_ID.sub('', ID_GROUP.sub('', text))
+    cleaned = CATEGORY_CODE.sub(lambda match: CATEGORY_WORDS[match.group(1)], cleaned)
+    cleaned = re.sub(r'\s{2,}', ' ', re.sub(r'\s+([.,])', r'', cleaned)).strip()
+    if INTERNAL_CODE.search(cleaned) or not cleaned:
+        return None, refs, True
+    return cleaned, refs, cleaned != text
 
 
 def _default(item, mode):
@@ -10,7 +35,7 @@ def _default(item, mode):
         actions = {'act': '공지에 안내된 방법을 확인하고 다음 행동을 진행해 주세요.',
                    'prepare': '공지에 안내된 준비물을 미리 확인해 주세요.',
                    'verify': '공지에서 행동 가능 시점과 일정 정보를 확인해 주세요.',
-                   'monitor': '추후 행동 시점을 다시 확인해 주세요.'}
+                   'monitor': '마감 전에 공지를 다시 확인해 주세요.'}
         if step == 'verify':
             actions[step] = {'date': '공지에서 일정 날짜를 확인해 주세요.',
                              'grouping': '공지에서 같은 활동에 속한 일정인지 확인해 주세요.',
@@ -20,7 +45,7 @@ def _default(item, mode):
             'act': '서버가 정한 순서에서 현재 진행할 다음 행동이 있는 활동입니다.',
             'prepare': '행동 가능 시점 전이며 확인된 준비 항목이 있는 활동입니다.',
             'verify': '서버가 다음 행동 전에 확인할 정보가 있다고 판단한 활동입니다.',
-            'monitor': '서버가 추후 행동 시점을 확인하도록 분류한 활동입니다.'}[step])
+            'monitor': '지금 바로 처리할 필요는 없는 활동입니다.'}[step])
     elif mode == 'discover':
         result.update(grade='potential_match', check_reasons=[])
     elif mode == 'focus':
@@ -90,6 +115,12 @@ def validate_output(payload, output):
         item['fact_refs'] = [ref for ref in refs if ref in allowed_refs]
         if item['fact_refs'] != refs:
             note('invalid_fact_ref_removed')
+        for field in ('reason', 'next_action') if mode == 'priority' else ('reason',):
+            text, found, changed = clean_text(item[field], allowed_refs)
+            if changed:
+                note('internal_code_replaced' if text is None else 'id_removed_from_text')
+            item[field] = text or default[field]
+            item['fact_refs'] += [ref for ref in found if ref not in item['fact_refs']]
         if mode == 'priority':
             step = source_item['priority_context']['next_step_type']
             if item['next_step_label'] != step:
@@ -97,7 +128,15 @@ def validate_output(payload, output):
                 item.update(next_step_label=step, reason=default['reason'], next_action=default['next_action'], fact_refs=[])
                 note('next_step_restored')
         elif mode == 'discover':
-            item['check_reasons'] = strings(raw, 'check_reasons')
+            reasons = []
+            for reason in strings(raw, 'check_reasons'):
+                text, found, changed = clean_text(reason, allowed_refs)
+                if changed:
+                    note('internal_code_replaced' if text is None else 'id_removed_from_text')
+                if text:
+                    reasons.append(text)
+                item['fact_refs'] += [ref for ref in found if ref not in item['fact_refs']]
+            item['check_reasons'] = reasons
             caps = [('eligibility', source_item['eligibility'] in ('needs_check', 'unknown')),
                     ('low_confidence', source_item['enrichment_status'] == 'low_confidence'),
                     ('grouping', source_item['grouping_review_required'])]
@@ -106,11 +145,13 @@ def validate_output(payload, output):
                 for code, enabled in caps:
                     if enabled:
                         note('discover_cap_' + code)
-            for requirement in source_item['unparsed_requirements']:
-                text = f'지원 조건을 확인해 주세요: {requirement}'
-                if not any(requirement in reason for reason in item['check_reasons']):
-                    item['check_reasons'].append(text)
-                    note('unparsed_requirement_added')
+            # GPT가 미해석 조건 수보다 적게 썼을 때만 서버 문장을 보탠다 (같은 조건을 다른 말로 쓴 경우의 중복 방지)
+            unparsed = source_item['unparsed_requirements']
+            if len(item['check_reasons']) < len(unparsed):
+                for requirement in unparsed:
+                    if not any(requirement in reason for reason in item['check_reasons']):
+                        item['check_reasons'].append(f'지원 조건을 확인해 주세요: {requirement}')
+                        note('unparsed_requirement_added')
         else:
             item['chosen_over'] = strings(raw, 'chosen_over')
             item['conflicts_with'] = strings(raw, 'conflicts_with')

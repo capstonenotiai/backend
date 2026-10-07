@@ -398,3 +398,17 @@ def test_preferred_conditions_do_not_make_eligibility_uncertain():
     assert planner.eligibility(item, profile) == 'eligible'
     add_fact(item, 'requirement', {'type': 'other', 'value': '팀 단위 지원', 'required': True})
     assert planner.eligibility(item, profile) == 'needs_check'
+
+
+@pytest.mark.parametrize('requirement,status,expected', [
+    ('재학생', 'expected_graduation', 'eligible'),
+    ('졸업예정자', 'expected_graduation', 'eligible'),
+    ('졸업생 또는 졸업예정자', 'graduated', 'eligible'),
+    ('졸업예정자', 'enrolled', 'needs_check'),
+    ('졸업예정자', 'leave', 'ineligible'),
+])
+def test_expected_graduation(requirement, status, expected):
+    item = opportunity()
+    item['enrichment']['enrichment_status'] = 'ok'
+    add_fact(item, 'requirement', {'type': 'enrollment_status', 'value': requirement, 'required': True})
+    assert planner.eligibility(item, {**PROFILE, 'enrollment_status': status}) == expected

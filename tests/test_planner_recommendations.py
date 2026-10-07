@@ -72,7 +72,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert set(output['items'][0]) == set(schema['properties']['items']['items']['properties'])
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v1'
+    assert PLANNER_PROMPT_VERSION == 'planner-v2'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 
@@ -420,3 +420,41 @@ def test_cli_planner_preview_payload_only(db):
     user = get_or_create_dev_user(db)
     assert planner_preview(db, 'nobody@example.com', 'priority', False).startswith('사용자 없음')
     assert '"payload"' in planner_preview(db, user.email, 'focus', False)
+
+
+def test_ids_and_codes_removed_from_user_text():
+    payload = payload_for('priority')
+    payload['opportunities'][0]['facts'].append({'fact_id': 'o1.how1', 'type': 'how_to_apply', 'value': '이메일 제출'})
+    output = output_for(payload)
+    first = output['items'][0]
+    first.update(fact_refs=[], next_action='3~5인 팀으로 신청서를 이메일로 제출하세요. [o1.how1, o1.how9]',
+                 reason='career 관심과 연결된 o1 활동입니다.')
+    output['items'][1]['reason'] = '지금 act 단계입니다.'
+    items, corrections = validate_output(payload, output)
+    assert items[0]['next_action'] == '3~5인 팀으로 신청서를 이메일로 제출하세요.'
+    assert items[0]['reason'] == '진로/취업 관심과 연결된 활동입니다.'
+    assert items[0]['fact_refs'] == ['o1.how1']  # 문장에 있던 유효한 fact_id 는 fact_refs 로 옮긴다
+    assert items[1]['reason'] == '서버가 정한 순서에서 현재 진행할 다음 행동이 있는 활동입니다.'
+    assert {'id_removed_from_text', 'internal_code_replaced'} <= set(corrections)
+
+
+def test_server_check_reasons_only_when_gpt_wrote_fewer():
+    payload = payload_for('discover')
+    payload['opportunities'][0]['unparsed_requirements'] = ['수원 거주자', '관내 학교 재학']
+    output = output_for(payload)
+    output['items'][0]['check_reasons'] = ['거주지가 수원인지 확인하세요.', '수원 관내 학교 재학 여부를 확인하세요.']
+    items, corrections = validate_output(payload, output)
+    assert len(items[0]['check_reasons']) == 2 and 'unparsed_requirement_added' not in corrections
+    output['items'][0]['check_reasons'] = ['거주지가 수원인지 확인하세요.']
+    items, corrections = validate_output(payload, output)
+    assert items[0]['check_reasons'][1:] == ['지원 조건을 확인해 주세요: 수원 거주자', '지원 조건을 확인해 주세요: 관내 학교 재학']
+
+
+def test_contacts_masked_in_payload():
+    item = opportunity()
+    item.update(eligibility='eligible', priority_context={'focus_event_id': 'e1', 'next_step_type': 'act', 'verify_target': None})
+    add_fact(item, 'how_to_apply', '접수 이메일: food-tech@example.co.kr / 문의 043-261-1234')
+    add_fact(item, 'requirement', {'type': 'other', 'value': '문의 010 1234 5678', 'required': True})
+    text = json.dumps(planner_context._payload_opportunity(item, 'priority'), ensure_ascii=False)
+    assert 'example.co.kr' not in text and '261-1234' not in text and '5678' not in text
+    assert '(공지에 안내된 이메일)' in text and '(공지에 안내된 전화번호)' in text

@@ -29,7 +29,9 @@ def parse_grade(value):
 def parse_enrollment_status(value):
     aliases = {'enrolled': 'enrolled', '재학': 'enrolled', '재학생': 'enrolled',
                'leave': 'leave', '휴학': 'leave', '휴학생': 'leave',
-               'graduated': 'graduated', '졸업': 'graduated', '졸업생': 'graduated'}
+               'graduated': 'graduated', '졸업': 'graduated', '졸업생': 'graduated',
+               'expected_graduation': 'expected_graduation', '졸업예정': 'expected_graduation',
+               '졸업예정자': 'expected_graduation', '졸업 예정자': 'expected_graduation'}
     if not isinstance(value, str):
         return None
     parts = re.split(r'\s*(?:/|,|또는|및)\s*', value.strip())
@@ -61,8 +63,12 @@ def requirement_comparisons(opportunity, profile):
                 result = actual in allowed
         elif kind == 'enrollment_status':
             allowed = parse_enrollment_status(value)
-            if allowed is not None and actual in ('enrolled', 'leave', 'graduated'):
+            if allowed is not None and actual in ('enrolled', 'expected_graduation', 'leave', 'graduated'):
                 result = actual in allowed
+                if actual == 'expected_graduation' and 'enrolled' in allowed:
+                    result = True  # 졸업 예정자도 재학생이다
+                elif actual == 'enrolled' and allowed == {'expected_graduation'}:
+                    result = None  # 재학생이 졸업 예정인지는 프로필로 알 수 없다
         elif kind == 'major' and actual and actual != 'unknown' and value.strip():
             result = actual.strip() == value.strip()
         comparisons.append({'fact_id': fact['fact_id'], 'type': kind,
@@ -199,8 +205,24 @@ def select_candidates(opportunities, profile, mode):
     return candidates[:CANDIDATE_LIMITS[mode]], grouping
 
 
+CONTACT_PATTERNS = (
+    (re.compile(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+'), '(공지에 안내된 이메일)'),
+    (re.compile(r'(?<!\d)0\d{1,2}[-.\s)]\d{3,4}[-.\s]\d{4}(?!\d)'), '(공지에 안내된 전화번호)'),
+)
+
+
+def _mask_contacts(value):
+    """공지 담당자 이메일·전화번호는 판단에 필요 없으므로 GPT 입력에서 가린다"""
+    if isinstance(value, dict):
+        return {key: _mask_contacts(item) for key, item in value.items()}
+    if isinstance(value, str):
+        for pattern, label in CONTACT_PATTERNS:
+            value = pattern.sub(label, value)
+    return value
+
+
 def _payload_opportunity(item, mode):
-    facts = validated_facts(item)
+    facts = [{**fact, 'value': _mask_contacts(fact['value'])} for fact in validated_facts(item)]
     if mode == 'priority':
         focus = focus_event(item)
         early_ids = {event.get('early_close_fact_id') for event in item['enrichment']['events']
@@ -270,6 +292,7 @@ def build_recommendation_context(db, user, mode, now=None):
         }
         if mode == 'priority':
             prompt_item.update(urgency=focus['urgency'] if focus else 'none',
+                              action_date=day, days_until_action=server_items[candidate['opportunity_id']]['days_until_deadline'],
                               action_window=focus['action_window'] if focus else 'unknown',
                               is_mandatory=candidate['enrichment']['is_mandatory'],
                               early_close=_early_close(candidate, focus))
