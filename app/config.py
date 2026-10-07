@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Shared X-Model-Token; keep only in the local environment/.env, never in logs.
     model_api_token: str = ""
     extraction_max_attempts: int = 3
+    # 비우면 MODEL_API_URL 의 /extract 를 /health 로 바꿔 사용
+    model_health_url: str = ""
+    # 수집과 별도로 추출 대기열을 처리하는 주기 (CRAWL_ENABLED=true 일 때)
+    extract_cron: str = "*/10 * * * *"
     # capstonenotiai/model repo 로컬 경로 — EXTRACTOR=gpt 일 때 SYSTEM_PROMPT/postprocess 재사용 (크롤러와는 무관)
     model_repo_path: str = ""
 

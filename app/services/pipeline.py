@@ -13,17 +13,19 @@ import httpx
 from dataclasses import asdict
 from collections import Counter
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import CrawlRun, Event, Notice, utcnow
 from app.schemas import SOURCE_IDS
 from app.services.category import categorize
-from app.services.extractor import ExtractionResult, Extractor, RetryableExtraction, get_extractor
+from app.services.extractor import ExtractionResult, Extractor, ModelUnavailable, RetryableExtraction, get_extractor
 from app.services.notice_metadata import iso_publication, publication_from_metadata, application_deadline
+from app.timeutil import to_local
 
 log = logging.getLogger(__name__)
 
@@ -76,18 +78,45 @@ def read_jsonl(path: str | Path) -> list[dict]:
     return records
 
 
-def extract_pending(db: Session, extractor: Extractor | None = None, limit: int | None = None) -> int:
-    """아직 event 가 없는 notice 를 추출해 events 로 저장. 처리 건수 반환"""
+# 공지 탓일 수 있는 실패(시간 초과, 5xx)의 재시도 간격(분). 시도 횟수 n 번째 실패 후 RETRY_DELAYS[n-1]
+RETRY_DELAYS = (10, 30, 120)
+# 마지막 모델 서버 확인 결과 (/api/health 표시용, 프로세스 메모리)
+MODEL_STATUS: dict = {"available": None, "checked_at": None}
+
+
+def _mark_model(available: bool) -> None:
+    MODEL_STATUS.update(available=available, checked_at=utcnow())
+
+
+def extract_pending(db: Session, extractor: Extractor | None = None, limit: int | None = None,
+                    now: datetime | None = None) -> int:
+    """
+    추출 대기열(pending / retry_pending) 처리. 처리 건수 반환.
+
+    모델 서버가 꺼져 있거나 사용 중이면 시도 횟수를 쓰지 않고 다음 실행으로 미룬다.
+    """
     extractor = extractor or get_extractor()
+    now = now or utcnow()
     states = ('pending', 'retry_pending')
     maximum = max(1, get_settings().extraction_max_attempts)
     query = select(Notice).where(Notice.extraction_state.in_(states),
-        Notice.extraction_attempts < maximum, ~Notice.events.any()).order_by(Notice.id)
+        Notice.extraction_attempts < maximum, ~Notice.events.any(),
+        or_(Notice.next_attempt_at.is_(None), Notice.next_attempt_at <= now)).order_by(Notice.id)
     if limit:
         query = query.limit(limit)
+    notices = db.scalars(query).all()
+    if not notices:
+        return 0
+    if hasattr(extractor, 'is_available'):
+        available = extractor.is_available()
+        _mark_model(available)
+        if not available:
+            log.info("모델 서버 응답 없음: 추출 %d건 대기", len(notices))
+            return 0
 
     count = 0
-    for notice in db.scalars(query).all():
+    for notice in notices:
+        previous = notice.extraction_state
         claimed=db.execute(update(Notice).where(Notice.id==notice.id,Notice.extraction_state.in_(states),
                 Notice.extraction_attempts < maximum)
             .values(extraction_state='processing', extraction_attempts=Notice.extraction_attempts+1))
@@ -117,12 +146,27 @@ def extract_pending(db: Session, extractor: Extractor | None = None, limit: int 
             notice.extraction_state = ('no_events' if not result.events else
                 'needs_review' if any(e.review_status=='needs_review' for e in result.events) else 'extracted')
             notice.extraction_error=None
+            notice.next_attempt_at=None
             notice.revision+=1
             db.commit()
+            if hasattr(extractor, 'is_available'):
+                _mark_model(True)
         except Exception as error:  # noqa: BLE001 — 한 건 실패로 전체를 멈추지 않음
             db.rollback()
+            if isinstance(error, (ModelUnavailable, httpx.ConnectError)):
+                # 공지 탓이 아니므로 시도 횟수를 되돌리고, 남은 공지도 다음 실행으로 미룬다
+                notice.extraction_attempts -= 1
+                notice.extraction_state = previous
+                notice.extraction_error = '모델 서버 연결 안 됨: 추출 대기'
+                db.commit()
+                _mark_model(False)
+                log.info("모델 서버 응답 없음: 이번 추출 중단 notice=%s", notice.id)
+                break
             retryable = isinstance(error, (RetryableExtraction, httpx.TransportError))
             notice.extraction_state = 'retry_pending' if retryable and notice.extraction_attempts < maximum else 'failed'
+            if notice.extraction_state == 'retry_pending':
+                delay = RETRY_DELAYS[min(notice.extraction_attempts, len(RETRY_DELAYS)) - 1]
+                notice.next_attempt_at = now + timedelta(minutes=delay)
             notice.extraction_error = ('모델 연결 실패: 재시도 대기' if notice.extraction_state == 'retry_pending'
                 else '추출 실패: ' + type(error).__name__)
             if hasattr(error,'raw'): notice.extraction_result=error.raw
@@ -131,6 +175,29 @@ def extract_pending(db: Session, extractor: Extractor | None = None, limit: int 
             continue
         count += 1
     return count
+
+
+def requeue_failed(db: Session) -> int:
+    """failed 공지(일정 없음)를 시도 횟수 0 으로 대기열에 다시 넣는다 (CLI 수동 실행용)"""
+    result = db.execute(update(Notice).where(Notice.extraction_state == 'failed', ~Notice.events.any())
+        .values(extraction_state='retry_pending', extraction_attempts=0, next_attempt_at=None),
+        execution_options={'synchronize_session': False})
+    db.commit()
+    return result.rowcount
+
+
+def queue_status(db: Session) -> dict:
+    """추출 대기열 현황 (/api/health)"""
+    counts = dict(db.execute(select(Notice.extraction_state, func.count())
+        .where(Notice.extraction_state.in_(('pending', 'retry_pending', 'processing', 'failed')))
+        .group_by(Notice.extraction_state)).all())
+    checked = MODEL_STATUS["checked_at"]
+    return {
+        "pending": counts.get('pending', 0), "retryPending": counts.get('retry_pending', 0),
+        "processing": counts.get('processing', 0), "failed": counts.get('failed', 0),
+        "modelAvailable": MODEL_STATUS["available"],
+        "modelCheckedAt": to_local(checked).isoformat(timespec="seconds") if checked else None,
+    }
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]

@@ -61,6 +61,8 @@ class Notice(Base):
     source_metadata: Mapped[dict | None] = mapped_column(JSON)
     application_end_date: Mapped[str | None] = mapped_column(String(10))
     extraction_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # 재시도 대기 중이면 이 시각(UTC) 이후에 다시 추출
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     extraction_state: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
     extraction_result: Mapped[dict | None] = mapped_column(JSON)

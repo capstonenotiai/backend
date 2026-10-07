@@ -10,12 +10,15 @@ from app.config import get_settings
 from app.deps import get_current_user, get_or_create_dev_user
 from app.main import app
 from app.models import Event, EventReport, Notice, User, UserEvent, UserNotice
-from app.services.extractor import ModelApiExtractor, parse_model_response, RetryableExtraction
-from app.services.pipeline import extract_pending, import_records, mark_interrupted_runs
+from app.services.extractor import ModelApiExtractor, ModelUnavailable, parse_model_response, RetryableExtraction
+from app.services.pipeline import MODEL_STATUS, extract_pending, import_records, mark_interrupted_runs, queue_status, requeue_failed
 from app.services.planner_facts import event_facts
 from app.services.event_types import to_planner_event_type
 from app.services.notice_metadata import iso_publication, application_deadline
 from app.services.google import build_calendar_body
+
+
+LATER = datetime(2099, 1, 1, tzinfo=timezone.utc)
 
 
 def response():
@@ -94,6 +97,82 @@ def test_transient_model_errors(failure, monkeypatch):
     with pytest.raises(RetryableExtraction): ModelApiExtractor().extract('a','b')
 
 
+@pytest.mark.parametrize('failure,unavailable', [('connect', True), ('503', True), ('429', True),
+                                                 ('timeout', False), ('500', False)])
+def test_model_down_or_busy_is_unavailable(failure, unavailable, monkeypatch):
+    monkeypatch.setattr(get_settings(), 'model_api_url', 'http://localhost/extract')
+    def post(*a, **kw):
+        if failure == 'timeout': raise httpx.ReadTimeout('test')
+        if failure == 'connect': raise httpx.ConnectError('test')
+        return httpx.Response(int(failure), text='not JSON')
+    monkeypatch.setattr(httpx, 'post', post)
+    with pytest.raises(RetryableExtraction) as caught: ModelApiExtractor().extract('a','b')
+    assert isinstance(caught.value, ModelUnavailable) is unavailable
+
+
+def test_health_url_and_probe(monkeypatch):
+    monkeypatch.setattr(get_settings(), 'model_api_url', 'http://127.0.0.1:8765/extract')
+    monkeypatch.setattr(get_settings(), 'model_api_token', 'shared')
+    seen = {}
+    def get(url, **kw):
+        seen.update(url=url, headers=kw['headers'])
+        return httpx.Response(200, json={})
+    monkeypatch.setattr(httpx, 'get', get)
+    assert ModelApiExtractor().is_available()
+    assert seen == {'url': 'http://127.0.0.1:8765/health', 'headers': {'X-Model-Token': 'shared'}}
+    def down(url, **kw): raise httpx.ConnectError('test')
+    monkeypatch.setattr(httpx, 'get', down)
+    assert not ModelApiExtractor().is_available()
+
+
+class Probed(CachedModel):
+    def __init__(self, available): super().__init__(); self.available = available; self.calls = 0
+    def is_available(self): return self.available
+    def extract(self, title, body, reference_time=None):
+        self.calls += 1
+        return super().extract(title, body, reference_time)
+
+
+def test_model_down_keeps_queue_without_using_attempts(db, monkeypatch):
+    monkeypatch.setattr(get_settings(), 'extraction_max_attempts', 2)
+    notice = Notice(site='cbnu', source_url='https://example.com/down', title_raw='공지')
+    db.add(notice); db.commit()
+    down = Probed(False)
+    for _ in range(5):
+        assert extract_pending(db, down) == 0
+    assert down.calls == 0 and notice.extraction_state == 'pending' and notice.extraction_attempts == 0
+    assert MODEL_STATUS['available'] is False
+    assert queue_status(db)['pending'] == 1 and queue_status(db)['modelAvailable'] is False
+    assert extract_pending(db, Probed(True)) == 1
+    assert notice.extraction_state == 'extracted' and MODEL_STATUS['available'] is True
+
+
+def test_model_lost_mid_batch_refunds_attempt_and_stops(db):
+    first = Notice(site='cbnu', source_url='https://example.com/a', title_raw='공지')
+    second = Notice(site='cbnu', source_url='https://example.com/b', title_raw='공지')
+    db.add_all([first, second]); db.commit()
+    class Lost:
+        name = 'model_api'; calls = 0
+        def is_available(self): return True
+        def extract(self, title, body, reference_time=None):
+            Lost.calls += 1
+            raise ModelUnavailable('down', {})
+    assert extract_pending(db, Lost()) == 0
+    assert Lost.calls == 1
+    for notice in (first, second):
+        assert notice.extraction_state == 'pending' and notice.extraction_attempts == 0
+
+
+def test_requeue_failed(db):
+    notice = Notice(site='cbnu', source_url='https://example.com/failed', title_raw='공지',
+                    extraction_state='failed', extraction_attempts=3)
+    db.add(notice); db.commit()
+    assert requeue_failed(db) == 1
+    db.refresh(notice)
+    assert notice.extraction_state == 'retry_pending' and notice.extraction_attempts == 0
+    assert extract_pending(db, CachedModel()) == 1
+
+
 def test_retry_then_success_and_exhaustion(db, monkeypatch):
     monkeypatch.setattr(get_settings(), 'extraction_max_attempts', 2)
     notice = Notice(site='cbnu', source_url='https://example.com/retry', title_raw='공지')
@@ -103,14 +182,17 @@ def test_retry_then_success_and_exhaustion(db, monkeypatch):
         def extract(self,title,body): raise RetryableExtraction('secret should not be logged', {})
     assert extract_pending(db, Failing()) == 0
     assert notice.extraction_state == 'retry_pending' and notice.extraction_attempts == 1
-    assert extract_pending(db, CachedModel()) == 1
+    # 재시도 간격 전에는 건너뛰고, 간격이 지나면 다시 추출
+    assert extract_pending(db, CachedModel()) == 0
+    assert extract_pending(db, CachedModel(), now=LATER) == 1
     assert notice.extraction_state == 'extracted' and notice.extraction_attempts == 2
+    assert notice.next_attempt_at is None
     another = Notice(site='cbnu', source_url='https://example.com/exhaust', title_raw='공지')
     db.add(another); db.commit()
     assert extract_pending(db, Failing()) == 0
-    assert extract_pending(db, Failing()) == 0
+    assert extract_pending(db, Failing(), now=LATER) == 0
     assert another.extraction_state == 'failed' and another.extraction_attempts == 2
-    assert extract_pending(db, CachedModel()) == 0
+    assert extract_pending(db, CachedModel(), now=LATER) == 0
     assert 'secret' not in another.extraction_error
 
 
@@ -259,7 +341,7 @@ def test_service_migration_downgrade_preserves_original_rows(tmp_path):
         assert conn.execute(text('SELECT extraction_state FROM notices')).scalar()=='pending'
         assert 'published_at' not in {c['name'] for c in inspect(conn).get_columns('notices')}
         run_migrations(conn)
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar()=='0004'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar()=='0005'
 
 
 @pytest.mark.parametrize('title', ['결과 발표', '시상식', '설문 (선택)', '선택 설문', '시스템 중단 안내'])

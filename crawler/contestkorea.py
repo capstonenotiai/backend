@@ -88,6 +88,20 @@ def parse_list_page(page: int, code: str) -> list[dict]:
 
 # ── 상세 페이지 파싱 ──────────────────────────────────────────────────────────
 
+def registration_date(url: str, html: str) -> str | None:
+    """
+    게시일: 글 번호(str_no, 예: 202602240031)의 앞 8자리가 처음 등록한 날짜다.
+    번호가 없으면 페이지에 주석 처리된 날짜 표시(<span class="date">)를 쓴다 (수정일일 수 있어 2순위).
+    """
+    number = parse_qs(urlparse(url).query).get("str_no", [""])[0]
+    if re.fullmatch(r"\d{9,}", number):
+        value = iso_publication(f"{number[:4]}-{number[4:6]}-{number[6:8]}")
+        if value:
+            return value
+    match = re.search(r'<span class="date">\s*(\d{4}-\d{2}-\d{2})\s*</span>', html)
+    return iso_publication(match.group(1)) if match else None
+
+
 def parse_detail_page(url: str) -> dict | None:
     resp = get(url)
     if not resp:
@@ -125,7 +139,8 @@ def parse_detail_page(url: str) -> dict | None:
     result["meta"] = meta
     published = bs.select_one('meta[property="article:published_time"], meta[itemprop="datePublished"], time[itemprop="datePublished"][datetime], .published time[datetime]')
     result['published_at'] = publication_from_metadata(meta) or (
-        iso_publication(published.get('content') or published.get('datetime')) if published else None)
+        iso_publication(published.get('content') or published.get('datetime')) if published else None
+    ) or registration_date(url, resp.text)
 
     # 본문
     for tag in bs.select("script, style, .ad, nav, header, footer, .relate, .share"):

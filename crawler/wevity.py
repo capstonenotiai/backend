@@ -75,8 +75,20 @@ def parse_detail_page(ix: int) -> dict | None:
 
     # 메타 정보
     meta = {}
+    # 현재 상세 페이지: <ul class="cd-info-list"><li><span class="tit">접수기간</span> 값 <span class="cil-dday">D-n</span></li>
+    for item in bs.select("ul.cd-info-list li"):
+        key_el = item.select_one("span.tit")
+        key = key_el.get_text(strip=True) if key_el else ""
+        if not key:
+            continue
+        value = item.get_text(" ", strip=True).removeprefix(key).strip()
+        dday = item.select_one(".cil-dday")
+        if dday:
+            value = value.removesuffix(dday.get_text(strip=True)).strip()
+        if value:
+            meta[key] = value
     content_el = bs.select_one(".content")
-    if content_el:
+    if content_el and not meta:  # 예전 레이아웃 (한 줄에 "키: 값")
         raw = content_el.get_text(separator="\n")
         for line in raw.split("\n"):
             m = re.match(

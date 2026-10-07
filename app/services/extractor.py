@@ -74,6 +74,10 @@ class RetryableExtraction(InvalidExtraction):
     """Transport failure eligible for a later extraction run."""
 
 
+class ModelUnavailable(RetryableExtraction):
+    """모델 서버가 꺼져 있거나 다른 요청 처리 중. 공지 탓이 아니므로 시도 횟수를 쓰지 않는다."""
+
+
 def parse_model_response(data: dict, title: str) -> ExtractionResult:
     from app.services.review import EventEdit
     if not isinstance(data,dict): raise ValueError('Model response must be an object')
@@ -292,6 +296,20 @@ class ModelApiExtractor:
         self.token = get_settings().model_api_token
         if not self.url:
             raise RuntimeError("EXTRACTOR=model_api 인데 MODEL_API_URL 이 없습니다.")
+        base = self.url.rstrip("/")
+        self.health_url = get_settings().model_health_url or (
+            base.removesuffix("/extract") + "/health" if base.endswith("/extract") else "")
+
+    def is_available(self) -> bool:
+        """모델 서버 /health 가 200 이면 True. health 주소를 모르면 확인 없이 True."""
+        if not self.health_url:
+            return True
+        try:
+            response = httpx.get(self.health_url, timeout=5, follow_redirects=False,
+                                 headers={'X-Model-Token': self.token} if self.token else {})
+        except httpx.HTTPError:
+            return False
+        return response.status_code == 200
 
     def extract(self, title: str, body: str, reference_time: str | None = None) -> ExtractionResult:
         from app.services.notice_metadata import iso_publication
@@ -304,9 +322,13 @@ class ModelApiExtractor:
                 headers={'X-Model-Token': self.token} if self.token else {},
                 follow_redirects=False,  # Never forward the shared secret to another origin.
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise ModelUnavailable('모델 서버 연결 실패', {'error_type': type(exc).__name__}) from None
         except httpx.TransportError as exc:
             raise RetryableExtraction('모델 연결 실패 또는 시간 초과', {'error_type': type(exc).__name__}) from None
-        if response.status_code == 429 or response.status_code >= 500:
+        if response.status_code in (429, 503):
+            raise ModelUnavailable('모델 서버 사용 중', {'status_code': response.status_code})
+        if response.status_code >= 500:
             raise RetryableExtraction('모델 서버 일시 오류', {'status_code': response.status_code})
         try: data = response.json()
         except ValueError as exc:
