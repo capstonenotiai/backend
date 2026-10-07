@@ -176,6 +176,19 @@ class Notification(Base):
     email_error: Mapped[str | None] = mapped_column(Text)
 
 
+class OpenAIUsage(Base):
+    """OpenAI 호출 1회의 토큰 수 (app/services/openai_usage.py)"""
+
+    __tablename__ = "openai_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24))  # enrichment | recommendation | chat
+    model: Mapped[str] = mapped_column(String(64))
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class EventReport(Base):
     __tablename__ = "event_reports"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -8,6 +8,7 @@
                                                  미추출 notices → events (--requeue-failed: 실패 공지를 다시 대기열에)
   python -m app.cli collect [--site cbnu]        크롤러 실행 + import + extract (MODEL_REPO_PATH 필요)
   python -m app.cli enrich [--limit N] [--requeue-failed]  공개 일정이 있는 공지 보강
+  python -m app.cli usage [--days 7]             OpenAI 호출 수·토큰 합계 (날짜·종류·모델별)
   python -m app.cli planner --email <사용자> --mode priority|discover|focus [--call-gpt]
                                                  플래너 입력(payload) 확인, --call-gpt 면 실제 추천 결과까지 (B 검증용)
 """
@@ -51,6 +52,8 @@ def main() -> None:
     p_enrich = sub.add_parser("enrich")
     p_enrich.add_argument("--limit", type=int)
     p_enrich.add_argument("--requeue-failed", action="store_true")
+    p_usage = sub.add_parser("usage")
+    p_usage.add_argument("--days", type=int, default=7)
     p_planner = sub.add_parser("planner")
     p_planner.add_argument("--email", required=True)
     p_planner.add_argument("--mode", required=True, choices=["priority", "discover", "focus"])
@@ -76,6 +79,14 @@ def main() -> None:
             print(f"추출 {count}건")
         elif args.command == "collect":
             print(collect(db, args.site))
+        elif args.command == "usage":
+            from app.services.openai_usage import summary
+            rows = summary(db, args.days)
+            for row in rows:
+                print(f"{row['date']} {row['kind']:<15} {row['model']:<20} 호출 {row['calls']:>4}  "
+                      f"입력 {row['input_tokens']:>9,}  출력 {row['output_tokens']:>9,}")
+            if not rows:
+                print("기록 없음")
         elif args.command == "planner":
             print(planner_preview(db, args.email, args.mode, args.call_gpt))
         elif args.command == "enrich":

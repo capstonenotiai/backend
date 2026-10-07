@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.models import Event, Notice, NoticeEnrichment, utcnow
+from app.services import openai_usage
 from app.services.category import CATEGORY_IDS
 from app.services.display_rules import HIDDEN_TYPES, service_excluded
 from app.services.pipeline import RETRY_DELAYS
@@ -213,6 +214,7 @@ def _request(client, settings, payload):
         text={'format': {'type': 'json_schema', 'name': 'notice_enrichment',
                          'strict': True, 'schema': ENRICHMENT_SCHEMA}},
         max_output_tokens=settings.enrich_max_output_tokens, store=False)
+    openai_usage.record('enrichment', settings.enrich_model, response)
     if response.status != 'completed':
         raise ValueError('Incomplete enrichment response')
     output = json.loads(response.output_text)

@@ -7,6 +7,7 @@ from threading import Lock
 from time import monotonic
 
 from app.config import get_settings
+from app.services import openai_usage
 from app.services.planner import PlannerError
 from app.services.planner_prompts import PLANNER_PROMPT_VERSION, instructions_for, schema_for
 from app.services.planner_validation import validate_output
@@ -43,6 +44,7 @@ def create_judgment(payload):
                                  'strict': True, 'schema': schema_for(payload['mode'])}},
                 store=False, max_output_tokens=settings.planner_max_output_tokens,
             )
+        openai_usage.record('recommendation', settings.planner_model, response)
     except openai.APIStatusError as error:
         log.error('[planner/recommendations] OpenAI request failed status=%s', error.status_code)
         if error.status_code == 429:

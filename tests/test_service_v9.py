@@ -341,7 +341,7 @@ def test_service_migration_downgrade_preserves_original_rows(tmp_path):
         assert conn.execute(text('SELECT extraction_state FROM notices')).scalar()=='pending'
         assert 'published_at' not in {c['name'] for c in inspect(conn).get_columns('notices')}
         run_migrations(conn)
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar()=='0008'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar()=='0009'
 
 
 @pytest.mark.parametrize('title', ['결과 발표', '시상식', '설문 (선택)', '선택 설문', '시스템 중단 안내'])

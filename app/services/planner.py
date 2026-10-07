@@ -8,6 +8,7 @@ import logging
 from datetime import date
 
 from app.config import get_settings
+from app.services import openai_usage
 from app.schemas import EventOut
 
 log = logging.getLogger(__name__)
@@ -148,6 +149,7 @@ def create_reply(instructions: str, input_messages: list[dict]) -> str:
             store=False,
             max_output_tokens=settings.openai_max_output_tokens,
         )
+        openai_usage.record("chat", settings.openai_model, response)
     except openai.APIStatusError as error:
         log.error("[planner/chat] OpenAI request failed status=%s", error.status_code)
         if error.status_code == 429:
