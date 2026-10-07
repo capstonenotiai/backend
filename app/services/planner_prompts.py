@@ -1,7 +1,7 @@
 """Recommendation prompts reconstructed from the specification and interview brief."""
 from copy import deepcopy
 
-PLANNER_PROMPT_VERSION = 'planner-v2'
+PLANNER_PROMPT_VERSION = 'planner-v3'
 
 BASE_PROMPT = """
 너는 대학생 일정 관리 서비스 NotiAI의 추천 판단 담당자다. 서버는 사실을 계산하고 너는 판단과 설명만 한다.
@@ -30,6 +30,9 @@ monitor는 지금 급하지 않다는 뜻이다. action_window가 open이면 이
 "추후 진행", "모집 예정"처럼 쓰지 않고 action_date(days_until_action일 후)까지 여유가 있다고 안내한다.
 날짜와 남은 일수는 입력의 action_date, days_until_action만 쓴다.
 reason에는 왜 먼저 보는지 서버 사실로 설명하고 next_action에는 다음 행동 한 문장을 쓴다.
+reason은 마감까지 남은 기간, 필수 여부, 조기 마감, 이미 관리 중인 활동인지 등 사용자 관점의 이유로 자연스럽게 쓴다.
+"행동 가능 상태", "action_window" 같은 내부 상태 표현을 사용자 문장에 쓰지 않는다.
+reason이나 next_action에 방법·준비물·조건을 쓰면 사용한 검증 Fact의 fact_id를 fact_refs에 반드시 넣는다.
 방법이나 준비물은 해당 활동의 검증 Fact에 있을 때만 구체화한다. 자격 불확실성으로 행동 유형을 바꾸지 않는다.
 """.strip(),
     'discover': """

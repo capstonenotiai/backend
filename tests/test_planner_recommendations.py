@@ -72,9 +72,17 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert set(output['items'][0]) == set(schema['properties']['items']['items']['properties'])
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v2'
+    assert PLANNER_PROMPT_VERSION == 'planner-v3'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
+
+
+def test_priority_prompt_user_reasons_and_required_fact_references():
+    prompt = instructions_for('priority')
+    assert '마감까지 남은 기간, 필수 여부, 조기 마감, 이미 관리 중인 활동인지' in prompt
+    assert '\"행동 가능 상태\", \"action_window\" 같은 내부 상태 표현을 사용자 문장에 쓰지 않는다.' in prompt
+    assert 'reason이나 next_action에 방법·준비물·조건을 쓰면' in prompt
+    assert 'fact_id를 fact_refs에 반드시 넣는다.' in prompt
 
 
 @pytest.mark.parametrize('mode', ['priority', 'discover', 'focus'])

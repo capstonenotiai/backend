@@ -1,0 +1,234 @@
+{
+  "event": [
+    "action_status",
+    "ai_extracted",
+    "attendance_mode",
+    "bookmarked",
+    "can_register",
+    "category",
+    "collected_at",
+    "detail",
+    "dismissed",
+    "end_date",
+    "end_time",
+    "event_type",
+    "id",
+    "is_new",
+    "location",
+    "notice_id",
+    "registered",
+    "registration_reason",
+    "review_reason",
+    "review_required",
+    "review_status",
+    "revision",
+    "schedule_status",
+    "source",
+    "source_url",
+    "start_date",
+    "start_time",
+    "sync_status",
+    "timezone",
+    "title",
+    "user_modified"
+  ],
+  "detail": [
+    "dismissed",
+    "events",
+    "notice_id"
+  ],
+  "GET /api/user": [
+    "email",
+    "enrollment_status",
+    "grade",
+    "is_admin",
+    "major",
+    "name"
+  ],
+  "GET /api/user/preferences": [
+    "ai_mode",
+    "auto_mode_recommend",
+    "enabled_sources",
+    "interests",
+    "notifications"
+  ],
+  "GET preferences nested": {
+    "ai_mode": null,
+    "auto_mode_recommend": null,
+    "enabled_sources": {
+      "cbnu": null,
+      "contestkorea": null,
+      "wevity": null
+    },
+    "interests": [
+      null
+    ],
+    "notifications": {
+      "d1": null,
+      "d3": null,
+      "email": null
+    }
+  },
+  "PUT /api/user/preferences": [
+    "ai_mode",
+    "auto_mode_recommend",
+    "enabled_sources",
+    "interests",
+    "notifications"
+  ],
+  "PUT preferences nested": {
+    "ai_mode": null,
+    "auto_mode_recommend": null,
+    "enabled_sources": {
+      "cbnu": null,
+      "contestkorea": null,
+      "wevity": null
+    },
+    "interests": [
+      null
+    ],
+    "notifications": {
+      "d1": null,
+      "d3": null,
+      "email": null
+    }
+  },
+  "PUT /api/user/profile": [
+    "email",
+    "enrollment_status",
+    "grade",
+    "is_admin",
+    "major",
+    "name"
+  ],
+  "GET /api/notifications": [
+    "items",
+    "next_before"
+  ],
+  "notification item": [
+    "created_at",
+    "event_id",
+    "id",
+    "kind",
+    "message",
+    "read",
+    "target_date",
+    "title"
+  ],
+  "GET /api/notifications/unread-count": [
+    "count"
+  ],
+  "GET /api/dashboard": [
+    "collectedChangeLabel",
+    "collectedToday",
+    "collectionFinishedAt",
+    "greeting",
+    "lastCollectedAt",
+    "referenceTimeLabel",
+    "sources"
+  ],
+  "dashboard source": [
+    "count",
+    "progress",
+    "source",
+    "status"
+  ],
+  "recommendations priority": [
+    "corrections",
+    "generated_at",
+    "items",
+    "mode",
+    "needs_grouping_check"
+  ],
+  "recommendation item priority": [
+    "action_date",
+    "days_until_deadline",
+    "eligibility",
+    "end_date",
+    "end_time",
+    "fact_refs",
+    "focus_event_id",
+    "interest_match",
+    "next_action",
+    "next_step_label",
+    "next_step_type",
+    "opportunity_id",
+    "priority_context",
+    "reason",
+    "source_url",
+    "start_date",
+    "start_time",
+    "title"
+  ],
+  "priority_context priority": [
+    "focus_event_id",
+    "next_step_type",
+    "verify_target"
+  ],
+  "recommendations discover": [
+    "corrections",
+    "generated_at",
+    "items",
+    "mode",
+    "needs_grouping_check"
+  ],
+  "recommendation item discover": [
+    "action_date",
+    "check_reasons",
+    "days_until_deadline",
+    "eligibility",
+    "end_date",
+    "end_time",
+    "fact_refs",
+    "focus_event_id",
+    "grade",
+    "interest_match",
+    "next_step_type",
+    "opportunity_id",
+    "priority_context",
+    "reason",
+    "source_url",
+    "start_date",
+    "start_time",
+    "title"
+  ],
+  "priority_context discover": [
+    "focus_event_id",
+    "next_step_type",
+    "verify_target"
+  ],
+  "recommendations focus": [
+    "corrections",
+    "generated_at",
+    "items",
+    "mode",
+    "needs_grouping_check"
+  ],
+  "recommendation item focus": [
+    "action_date",
+    "chosen_over",
+    "conflicts_with",
+    "days_until_deadline",
+    "eligibility",
+    "end_date",
+    "end_time",
+    "fact_refs",
+    "focus_event_id",
+    "interest_match",
+    "next_step_type",
+    "opportunity_id",
+    "priority_context",
+    "reason",
+    "secondary_reason",
+    "source_url",
+    "start_date",
+    "start_time",
+    "tier",
+    "title"
+  ],
+  "priority_context focus": [
+    "focus_event_id",
+    "next_step_type",
+    "verify_target"
+  ]
+}

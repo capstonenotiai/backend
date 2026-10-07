@@ -13,6 +13,27 @@ SEOUL = ZoneInfo('Asia/Seoul')
 NOW = datetime(2030, 10, 6, 9, tzinfo=SEOUL)  # 일요일 09:00
 
 
+def test_notification_scheduler_uses_seoul_nine_am(monkeypatch):
+    from types import SimpleNamespace
+    from app.config import Settings
+    from app import scheduler
+
+    settings = Settings(_env_file=None, crawl_enabled=False, notify_enabled=True)
+    jobs = []
+    fake = SimpleNamespace(add_job=lambda func, trigger, **kw: jobs.append((func, trigger, kw)), start=lambda: None)
+    monkeypatch.setattr(scheduler, 'get_settings', lambda: settings)
+    monkeypatch.setattr(scheduler, 'BackgroundScheduler', lambda **kw: fake)
+    assert scheduler.start_scheduler() is fake
+    assert len(jobs) == 1
+    func, trigger, options = jobs[0]
+    assert func is scheduler.run_notify_job and options['id'] == 'notify'
+    assert str(trigger.timezone) == 'Asia/Seoul'
+    assert trigger.get_next_fire_time(None, NOW.replace(hour=8)) == NOW
+    # 서버가 09시에 꺼졌다면 당일 다음 실행에서 채우며 생성의 중복 방지는 별도 테스트한다.
+    assert trigger.get_next_fire_time(NOW, NOW) == NOW.replace(hour=10)
+    assert options['max_instances'] == 1 and options['coalesce'] is True
+
+
 def make_event(db, kind='application', start='2030-10-01', end='2030-10-09', title=None, **kwargs):
     notice = Notice(site='cbnu', source_url=f'https://example.com/n/{kind}/{end}/{title}', title_raw='SW 공모전 안내')
     db.add(notice); db.flush()
