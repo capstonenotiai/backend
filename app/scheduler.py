@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.services.notifications import generate_notifications, send_pending_emails
 from app.services.pipeline import collect, extract_pending
+from app.services.enrichment import enrich_pending
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,16 @@ def run_extract_job() -> None:
         db.close()
 
 
+def run_enrich_job() -> None:
+    with SessionLocal() as db:
+        try:
+            count = enrich_pending(db)
+            if count:
+                log.info("공지 보강 %d건", count)
+        except Exception as error:
+            log.error("공지 보강 작업 실패: %s", type(error).__name__)
+
+
 def run_notify_job() -> None:
     """오늘 보낼 알림을 알림함에 만들고 이메일 발송"""
     db = SessionLocal()
@@ -61,6 +72,7 @@ def start_scheduler() -> BackgroundScheduler | None:
     jobs = []
     if settings.crawl_enabled:
         jobs += [("collect", run_collect_job, settings.crawl_cron), ("extract", run_extract_job, settings.extract_cron)]
+        jobs.append(("enrich", run_enrich_job, settings.enrich_cron))
     if settings.notify_enabled:
         jobs.append(("notify", run_notify_job, settings.notify_cron))
     for job_id, func, cron in jobs:

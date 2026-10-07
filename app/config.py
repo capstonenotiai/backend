@@ -6,6 +6,7 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 
 
 class Settings(BaseSettings):
@@ -36,6 +37,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-6-luna"
     openai_max_output_tokens: int = 800
+    enrich_model: str = ""
+    enrich_max_output_tokens: int = 4000
+    enrich_cron: str = "*/30 * * * *"
 
     # 일정 추출기: stub | gpt | model_api (app/services/extractor.py)
     extractor: str = "stub"
@@ -76,6 +80,12 @@ class Settings(BaseSettings):
     #   마감 후 N일 지남 / 날짜 없는 일정은 수집 후 N일 지남. 캘린더 등록·북마크한 일정은 계속 표시
     event_retention_days: int = 90
     timezone: str = "Asia/Seoul"
+
+    @model_validator(mode="after")
+    def enrichment_model_default(self):
+        if not self.enrich_model:
+            self.enrich_model = self.openai_model
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

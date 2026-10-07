@@ -74,6 +74,24 @@ class Notice(Base):
     events: Mapped[list["Event"]] = relationship(back_populates="notice")
 
 
+class NoticeEnrichment(Base):
+    __tablename__ = "notice_enrichments"
+
+    notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), primary_key=True)
+    state: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    raw: Mapped[dict | None] = mapped_column(JSON)
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)
+    notice_kind: Mapped[str] = mapped_column(String(16), default="normal", server_default="normal")
+    grouping_review_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    grouping_review_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    enrichment_status: Mapped[str] = mapped_column(String(24), default="ok", server_default="ok")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Event(Base):
     """모델이 추출한 일정 (프론트 Event)"""
 

@@ -286,7 +286,7 @@ def test_profile_migration_existing_columns_downgrade_and_row_preservation(tmp_p
         conn.execute(text("UPDATE preferences SET major='keep'"))
         run_migrations(conn)
         assert conn.execute(text('SELECT major,grade,enrollment_status FROM preferences')).one() == ('keep', None, 'unknown')
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0007'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0008'
         config = Config()
         config.set_main_option('script_location', str(BACKEND_ROOT / 'migrations'))
         config.attributes['connection'] = conn

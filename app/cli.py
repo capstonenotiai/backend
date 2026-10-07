@@ -7,6 +7,7 @@
   python -m app.cli extract [--limit N] [--extractor stub|gpt|model_api] [--requeue-failed]
                                                  미추출 notices → events (--requeue-failed: 실패 공지를 다시 대기열에)
   python -m app.cli collect [--site cbnu]        크롤러 실행 + import + extract (MODEL_REPO_PATH 필요)
+  python -m app.cli enrich [--limit N] [--requeue-failed]  공개 일정이 있는 공지 보강
 """
 import argparse
 
@@ -14,6 +15,7 @@ from app.db import SessionLocal, init_db
 from app.seed import seed
 from app.services.extractor import get_extractor
 from app.services.pipeline import collect, extract_pending, import_records, read_jsonl, requeue_failed
+from app.services.enrichment import enrich_pending, requeue_failed as requeue_enrichment_failed
 
 
 def main() -> None:
@@ -27,6 +29,9 @@ def main() -> None:
     p_extract.add_argument("--limit", type=int)
     p_extract.add_argument("--extractor")
     p_extract.add_argument("--requeue-failed", action="store_true")
+    p_enrich = sub.add_parser("enrich")
+    p_enrich.add_argument("--limit", type=int)
+    p_enrich.add_argument("--requeue-failed", action="store_true")
     p_collect = sub.add_parser("collect")
     p_collect.add_argument("--site", choices=["cbnu", "wevity", "contestkorea"])
     args = parser.parse_args()
@@ -48,6 +53,10 @@ def main() -> None:
             print(f"추출 {count}건")
         elif args.command == "collect":
             print(collect(db, args.site))
+        elif args.command == "enrich":
+            if args.requeue_failed:
+                print(f"보강 실패 공지 {requeue_enrichment_failed(db)}건을 대기열에 다시 넣음")
+            print(f"공지 보강 {enrich_pending(db, limit=args.limit)}건")
     finally:
         db.close()
 

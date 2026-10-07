@@ -1,4 +1,4 @@
-"""Deterministic facts only. No GPT calls, enrichment or recommendation ranking."""
+"""Deterministic event facts and stored validated enrichment. No GPT calls."""
 from datetime import date, datetime, time
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -11,6 +11,7 @@ from app.services.google import build_calendar_body
 from app.services.user_schedule import effective_event
 from app.services.review import requires_confirmation
 from app.services.event_types import to_planner_event_type
+from app.services.enrichment import get_enrichment
 
 SEOUL = ZoneInfo('Asia/Seoul')
 URGENCY_BANDS = ((2, 'urgent'), (7, 'soon'), (14, 'upcoming'))
@@ -175,6 +176,7 @@ def opportunity_facts(db, user, notice, now=None, context=None):
         'category': next((event.category for event, _ in rows if event.category), None),
         'dismissed': notice.id in context['dismissed'], 'user_managed': notice.id in context['managed'],
         'events': events,
+        'enrichment': get_enrichment(db, notice.id),
         'application_expired_not_done': bool(applications) and all(event['expired'] is True for event in applications)
             and not any(event['action_status'] == 'done' for event in applications),
         'calendar_conflict': True if conflict else False if verified else None}

@@ -236,6 +236,8 @@ def mark_interrupted_runs(db: Session) -> int:
     서버 시작 시 호출. 수집 도중 서버가 꺼져 'running' 으로 남은 기록을 실패로 정리
     (그대로 두면 대시보드에 계속 '수집 중'으로 보임)
     """
+    from app.services.enrichment import mark_interrupted_enrichments
+    mark_interrupted_enrichments(db)
     interrupted = db.scalars(select(Notice).where(Notice.extraction_state=='processing')).all()
     for notice in interrupted:
         notice.extraction_state = 'retry_pending' if notice.extraction_attempts < max(1, get_settings().extraction_max_attempts) else 'failed'
