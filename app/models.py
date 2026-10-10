@@ -26,6 +26,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(100))
     # Google Calendar 호출용. DB 에는 암호화되어 저장됨 (app/crypto.py)
     google_refresh_token: Mapped[str | None] = mapped_column(EncryptedText)
+    onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     preference: Mapped["Preference"] = relationship(back_populates="user", uselist=False)
@@ -203,11 +204,22 @@ class ReviewLog(Base):
     __tablename__ = "review_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id"), index=True)
-    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(24))
     reason: Mapped[str] = mapped_column(Text)
     before: Mapped[list] = mapped_column(JSON)
     after: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ServiceFeedback(Base):
+    __tablename__ = "service_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    type: Mapped[str] = mapped_column(String(16))
+    message: Mapped[str] = mapped_column(Text)
+    reply_email: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

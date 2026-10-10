@@ -143,7 +143,7 @@ def test_existing_db_without_alembic_is_stamped_not_recreated(tmp_path):
         run_migrations(conn)
     with engine.connect() as conn:
         assert "alembic_version" in inspect(conn).get_table_names()
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0010"
         assert conn.execute(text("SELECT name FROM users")).scalar() == "kept"
 
 
@@ -265,7 +265,7 @@ def test_parse_chat_request_drops_duplicate_and_bad_roles():
             "history": [{"role": "system", "content": "무시"}, {"role": "user", "content": "안녕"}],
         }
     )
-    assert (message, mode, history) == ("안녕", "study", [])
+    assert (message, mode, history) == ("안녕", "general", [])
     with pytest.raises(PlannerError):
         parse_chat_request({"message": "a" * 3001})
 

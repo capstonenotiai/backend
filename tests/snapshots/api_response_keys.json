@@ -43,7 +43,8 @@
     "grade",
     "is_admin",
     "major",
-    "name"
+    "name",
+    "onboarding_done"
   ],
   "GET /api/user/preferences": [
     "ai_mode",
@@ -99,7 +100,17 @@
     "grade",
     "is_admin",
     "major",
-    "name"
+    "name",
+    "onboarding_done"
+  ],
+  "PUT /api/user/onboarding": [
+    "email",
+    "enrollment_status",
+    "grade",
+    "is_admin",
+    "major",
+    "name",
+    "onboarding_done"
   ],
   "GET /api/notifications": [
     "items",
@@ -138,7 +149,8 @@
     "generated_at",
     "items",
     "mode",
-    "needs_grouping_check"
+    "needs_grouping_check",
+    "summary"
   ],
   "recommendation item priority": [
     "action_date",
@@ -170,7 +182,8 @@
     "generated_at",
     "items",
     "mode",
-    "needs_grouping_check"
+    "needs_grouping_check",
+    "summary"
   ],
   "recommendation item discover": [
     "action_date",
@@ -202,7 +215,8 @@
     "generated_at",
     "items",
     "mode",
-    "needs_grouping_check"
+    "needs_grouping_check",
+    "summary"
   ],
   "recommendation item focus": [
     "action_date",
@@ -230,5 +244,30 @@
     "focus_event_id",
     "next_step_type",
     "verify_target"
+  ],
+  "POST /api/feedback": [
+    "created_at",
+    "id"
+  ],
+  "report item": [
+    "created_at",
+    "event_id",
+    "id",
+    "memo",
+    "reason",
+    "status",
+    "title"
+  ],
+  "GET /api/admin/feedback": [
+    "items",
+    "total"
+  ],
+  "admin feedback item": [
+    "created_at",
+    "id",
+    "message",
+    "reply_email",
+    "type",
+    "user_id"
   ]
 }

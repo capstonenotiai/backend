@@ -8,7 +8,7 @@ import pytest
 
 from app.deps import get_or_create_dev_user
 from app.main import app
-from app.models import NoticeEnrichment, Notification
+from app.models import EventReport, NoticeEnrichment, Notification
 from app.services import planner_recommendations as service
 from app.services.enrichment import empty_enrichment
 from app.services.preferences import get_or_create_preference
@@ -78,6 +78,7 @@ def test_frontend_response_keys(client, db, monkeypatch):
         ('GET', '/api/user', {}), ('GET', '/api/user/preferences', {}),
         ('PUT', '/api/user/preferences', {'json': {'ai_mode': 'focus', 'interests': ['academic']}}),
         ('PUT', '/api/user/profile', {'json': {'major': '소프트웨어학부', 'grade': 3, 'enrollment_status': 'enrolled'}}),
+        ('PUT', '/api/user/onboarding', {'json': {'done': True}}),
         ('GET', '/api/notifications', {}), ('GET', '/api/notifications/unread-count', {}),
         ('GET', '/api/dashboard', {}),
     ]:
@@ -101,6 +102,19 @@ def test_frontend_response_keys(client, db, monkeypatch):
         shapes['recommendation item ' + mode] = sorted(body['items'][0])
         assert all(sorted(item) == shapes['recommendation item ' + mode] for item in body['items'])
         shapes['priority_context ' + mode] = sorted(body['items'][0]['priority_context'])
+    feedback = client.post('/api/feedback', json={'type': 'other', 'message': '서비스 의견'})
+    assert feedback.status_code == 201
+    keys('POST /api/feedback', feedback.json())
+    db.add(EventReport(user_id=user.id, event_id=event.id, reason='date', memo='날짜 확인'))
+    db.commit()
+    reports = call('GET', '/api/reports/mine')
+    assert reports
+    shapes['report item'] = sorted(reports[0])
+    from test_admin_review import login
+    login(client, db, monkeypatch)
+    admin_feedback = call('GET', '/api/admin/feedback')
+    keys('GET /api/admin/feedback', admin_feedback)
+    shapes['admin feedback item'] = sorted(admin_feedback['items'][0])
     frozen('api_response_keys.json', shapes)
     service._cache.clear()
 

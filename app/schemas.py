@@ -3,7 +3,9 @@ API 요청/응답 형태 — 프론트(jaeyeongt/NotiAi) src/services/*.js 계�
 """
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.services.user_schedule import ScheduleOverrides
 
 # 프론트 src/config/aiModes.js / sources.js 의 id 와 같아야 함
@@ -58,6 +60,38 @@ class Profile(RecommendationProfile):
     name: str
     email: str
     is_admin: bool = False
+    onboarding_done: bool = False
+
+
+class OnboardingIn(BaseModel):
+    done: bool = Field(strict=True)
+
+
+class FeedbackIn(BaseModel):
+    type: Literal['inconvenience', 'suggestion', 'praise', 'other']
+    message: str = Field(min_length=1, max_length=2000, strict=True)
+    reply_email: str | None = Field(default=None, max_length=255, strict=True)
+
+    @field_validator('message', mode='before')
+    @classmethod
+    def strip_message(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator('reply_email', mode='before')
+    @classmethod
+    def normalize_email(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            if '@' not in value:
+                raise ValueError('이메일 형식이 올바르지 않습니다.')
+        return value
+
+
+class FeedbackOut(BaseModel):
+    id: int
+    created_at: datetime
 
 
 class Notifications(BaseModel):

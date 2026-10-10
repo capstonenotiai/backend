@@ -1,6 +1,6 @@
 # 백엔드 API 동결 계약
 
-기준: feature/service-v9의 현재 라우터 34개, TASK_B10. `/api` 접두사를 포함한 경로이며 `/api/dashboard`에는 `/summary`가 없다.
+기준: feature/service-v9의 현재 라우터 39개, TASK_B12. `/api` 접두사를 포함한 경로이며 `/api/dashboard`에는 `/summary`가 없다.
 프론트는 `credentials: 'include'`로 세션 쿠키 `notiai_session`을 보낸다. 로그인 필수 API는 미로그인 시 401 `{"message":"로그인이 필요합니다."}`.
 DEV_LOGIN=true에서는 일반 사용자 API를 개발용 사용자로 호출할 수 있지만 관리자는 실제 세션과 관리자 허용 이메일이 필요하다.
 관리자 변경 요청은 허용된 Origin도 필요하다. 관리자 공통 오류: 401 `{"message":"관리자 로그인이 필요합니다."}`, 403 `{"message":"관리자 권한이 필요합니다."}` 또는 `{"message":"허용되지 않은 요청 출처입니다."}`.
@@ -11,7 +11,7 @@ DEV_LOGIN=true에서는 일반 사용자 API를 개발용 사용자로 호출할
 
 ## 오류 계약
 
-HTTPException·플래너 오류·예상 못 한 오류는 `{message}`. Pydantic 입력 검증 오류는 **400 `{message, errors}`**이며 OpenAPI의 자동 422 표기와 실제 상태가 다르다. 현 동작을 그대로 동결한다.
+HTTPException·플래너 오류·예상 못 한 오류는 `{message}`. Pydantic 입력 검증 오류는 **400 `{message, errors}`**이며 OpenAPI의 자동 422 표기와 실제 상태가 다르다.
 예: `{"message":"요청 형식이 올바르지 않습니다.","errors":[{"type":"greater_than_equal","loc":["body","grade"],"msg":"Input should be greater than or equal to 1","input":0,"ctx":{"ge":1}}]}`.
 공통 500: `{"message":"서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."}`. 다음 절에서는 각 경로의 주요 추가 오류를 기재한다.
 
@@ -22,7 +22,7 @@ HTTPException·플래너 오류·예상 못 한 오류는 `{message}`. Pydantic 
 | 값 종류 | 코드 → 한국어 제안 |
 |---|---|
 | 추천/설정 ai_mode | priority → 우선순위; discover → 새 기회 탐색; focus → 집중할 활동 |
-| 기존 chat mode | study → 학업; explorer → 탐색; balanced → 균형 (그 외 값은 study로 복원) |
+| chat mode | general → 내 일정 질문(기본); priority → 우선순위; discover → 활동 탐색; focus → 집중할 활동 고르기. 호환 별칭 explorer → discover, study·balanced → general; 모르는 값은 general |
 | source | cbnu → CBNU 포털; wevity → Wevity; contestkorea → ContestKorea |
 | 관심분야 category/id | scholarship → 장학; academic → 학사; career → 취업/인턴; contest → 공모전; activity → 대외활동 |
 | 서비스 event_type | application → 접수; submission → 제출/납부; event → 본행사; interview → 면접; orientation → 발대식/OT; result → 결과 발표(비공개); service_change → 시스템/시설 안내(비공개) |
@@ -43,15 +43,15 @@ HTTPException·플래너 오류·예상 못 한 오류는 `{message}`. Pydantic 
 | sync_status | none → 미등록; synced → 반영 완료; needs_sync → 갱신 필요; failed → 반영 실패 |
 | action_window / urgency | open → 진행 가능; not_open → 진행 전; unknown → 시점 미확인 / urgent → 긴급; soon → 임박; upcoming → 예정; later → 여유; none → 날짜 미확인 |
 
-Preferences는 관심분야·출처 키를 위 목록으로 제한하지 않는다. 알 수 없는 ai_mode는 priority로 복원하고 interests 중복은 제거한다.
-설정의 생략 기본값은 ai_mode=priority, interests=[], enabled_sources={cbnu:true,wevity:true,contestkorea:true}, notifications={d3:true,d1:true,email:true}, auto_mode_recommend=true다.
-PUT는 부분 수정이 아니다. 생략 필드는 스키마 기본값으로 저장된다. 프로필은 생략 시 major="", grade=null, enrollment_status="unknown"이다. name/email은 프로필 PUT으로 수정할 수 없다.
+Preferences는 관심분야·출처 키를 위 목록으로 제한하지 않는다. ai_mode는 priority/discover/focus만 저장하고 알 수 없는 값은 priority로 복원하고 interests 중복은 제거한다.
+설정을 처음 만들 때의 기본값은 ai_mode=priority, interests=[], enabled_sources={cbnu:true,wevity:true,contestkorea:true}, notifications={d3:true,d1:true,email:true}, auto_mode_recommend=true다.
+설정 PUT는 요청에 들어온 필드만 바꾸며 notifications는 들어온 키만 기존 값에 병합한다. 빈 본문 객체는 기존 값을 유지한다. enabled_sources를 보내면 그 dict 전체를 교체한다. 응답은 항상 전체 Preferences다. 프로필 PUT는 기존대로 생략 시 major="", grade=null, enrollment_status="unknown"이다. name/email은 프로필 PUT으로 수정할 수 없다.
 알림은 D-3/D-1 당일 09:00 Asia/Seoul에 생성한다. 확인 필요 일정은 기본 제외한다. 이메일 수신을 꺼도 알림함은 유지된다.
 실제 기본 스케줄은 `0 9-23 * * *`: 09시에 생성하고 10~23시에도 미생성분·이메일 재시도를 처리한다. 서버가 09시에 꺼져 있으면 당일 다음 실행에서 채우며 같은 알림은 중복 생성하지 않는다. NOTIFY_ENABLED를 켜야 스케줄이 실행된다.
 캘린더 묶음 등록은 면접을 제외하고, 면접은 별도 API로 추가한다. 묶음 해제에서도 면접은 유지된다. Google 일부 실패 시 이미 성공한 형제 일정은 유지될 수 있다.
 목록은 공지마다 가장 가까운 미마감 접수 하나, 접수가 없으면 본행사 하나다. 접수가 모두 마감되면 목록에서 제외하지만 등록된 캘린더 일정은 유지한다. 상세는 공개된 형제 일정이며 결과 발표·시스템 안내 등 서비스 제외 일정은 포함하지 않는다.
 `ai_extracted`는 카드에 AI 표시를 하라는 뜻이 아니다. `review_required`일 때만 등록 확인을 유도하며, 날짜 등 개인 수정은 `/overrides`로 저장한다.
-추천 응답은 서버 사실과 모드 판단을 합친다. fact_refs는 해당 활동의 검증 Fact ID 목록, corrections는 서버 보정 코드 목록, needs_grouping_check는 별도 확인할 `{opportunity_id,title}` 목록이다. corrections는 사용자 화면에 코드 그대로 노출하지 않는다. 캐시는 사용자·모드·입력·프롬프트 버전별 30분이다.
+추천 응답은 서버 사실과 모드 판단을 합친다. fact_refs는 해당 활동의 검증 Fact ID 목록, corrections는 서버 보정 코드 목록, needs_grouping_check는 별도 확인할 `{opportunity_id,title}` 목록이다. corrections는 사용자 화면에 코드 그대로 노출하지 않는다. 캐시는 사용자·모드·입력·프롬프트 버전별 30분이다. refresh=true는 캐시를 건너뛰고 성공한 결과로 교체한다. summary는 캐시 응답에도 포함되는 서버 생성 한 문장으로, 추천 개수와 행동일까지 0~3일 남은 항목 개수를 설명한다.
 현재 calendar_conflict는 사용자가 서비스에 등록한 일정 간 비교다. Google 캘린더의 외부 일정을 조회하지 않는다. new_to_user는 null 임시값이다.
 
 
@@ -138,7 +138,8 @@ PUT는 부분 수정이 아니다. 생략 필드는 스키마 기본값으로 �
   "enrollment_status": "unknown",
   "name": "개발용 사용자",
   "email": "dev@notiai.local",
-  "is_admin": false
+  "is_admin": false,
+  "onboarding_done": false
 }
 ```
 
@@ -171,7 +172,8 @@ grade는 정수 1~6 또는 null(문자열·bool 불가), major는 엄격 문자�
   "enrollment_status": "enrolled",
   "name": "개발용 사용자",
   "email": "dev@notiai.local",
-  "is_admin": false
+  "is_admin": false,
+  "onboarding_done": false
 }
 ```
 
@@ -251,6 +253,43 @@ grade는 정수 1~6 또는 null(문자열·bool 불가), major는 엄격 문자�
   "auto_mode_recommend": true
 }
 ```
+
+### `PUT /api/user/onboarding`
+
+로그인: 필수. 본문 `{ "done": true }` 또는 `{ "done": false }` (엄격한 boolean, 필수).
+성공 200: `GET /api/user`와 같은 전체 Profile, 갱신된 `onboarding_done` 포함.
+신규 사용자는 false. 0010 마이그레이션에서 기존 전공이 공백 외 문자열이거나 관심분야가 비어 있지 않으면 true로 백필한다.
+입력 검증 오류 400 `{message, errors}`, 미로그인 401 `{message}`.
+
+### `DELETE /api/users/me`
+
+로그인: 필수. 본문·쿼리 없음. 성공 204, 본문 없음. 미로그인 401 `{message}`.
+refresh token이 있으면 Google 철회를 먼저 요청하고, 실패해도 경고만 남긴 뒤 탈퇴를 진행한다.
+사용자·설정·일정 상태·공지 상태·알림·신고·서비스 의견을 명시적으로 삭제한다. 검토 기록은 유지하며 actor_id만 null로 바꾼다.
+세션과 쿠키는 `/api/auth/logout`과 같은 방식으로 종료한다.
+**이미 등록된 Google 캘린더 일정은 삭제하지 않는다. 탈퇴 후 Google 캘린더에서 직접 지울 수 있다.**
+0010 downgrade는 익명 검토 기록(actor_id=null)이 있으면 기록을 보존하기 위해 변경 전에 중단한다. 이전 버전의 NOT NULL 제약으로 표현할 수 없기 때문이다.
+
+## 서비스 의견·내 신고 내역
+
+### `POST /api/feedback`
+
+로그인: 필수. 본문 `{ "type": "suggestion", "message": "의견 내용", "reply_email": "reply@example.com" }`.
+type: inconvenience / suggestion / praise / other. message: 문자열, 양끝 공백 제거 후 1~2000자.
+reply_email: 선택 문자열/null, 양끝 공백 제거 후 `@` 포함 및 255자 이하. 빈 문자열은 null로 저장한다.
+성공 201: `{ "id": 1, "created_at": "2026-10-11T00:04:00+00:00" }` (ISO 8601).
+잘못된 입력은 400 `{message, errors}`, 미로그인은 401 `{message}`. 의견·이메일 원문은 로그에 남기지 않는다.
+
+### `GET /api/reports/mine`
+
+로그인: 필수. 본문·쿼리 없음. 로그인 사용자 신고만 created_at 내림차순, 동률이면 id 내림차순.
+성공 200: 배열 (없으면 `[]`). 예:
+
+```json
+[{"id": 1, "event_id": 12, "title": "행사 제목", "reason": "date", "memo": "날짜 확인", "status": "received", "created_at": "2026-10-11T00:04:00+00:00"}]
+```
+
+title은 이벤트가 없으면 null. reason·memo는 기존 신고 필드 그대로다. 현재 모델에는 처리 여부 필드가 없어 status는 모두 received다(관리자 검토 상태로 추측하지 않는다). 미로그인 401 `{message}`.
 
 ## 일정
 
@@ -752,6 +791,8 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 
 ### `GET /api/dashboard`
 
+lastCollectedAt은 서울 시간대 ISO 8601(초 포함), 예: `2026-10-11T09:04:00+09:00`. 수집 기록이 없으면 기존 `"-"`를 유지한다. collectionFinishedAt은 기존 HH:MM 또는 `"-"` 형식을 유지한다.
+
 로그인: 필수.
 
 요청: 본문·쿼리 없음.
@@ -903,13 +944,16 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 
 로그인: 필수.
 
-본문 최대 64 KiB. mode 외 키는 현재 무시한다. 모드별 성공 예시는 아래 3개다.
+본문 최대 64 KiB. mode·refresh 외 키는 무시한다. 모드별 성공 예시는 아래 3개다.
+refresh=true는 사용자·모드별 60초에 한 번 허용한다(실패한 생성 요청도 제한에 포함). bool이 아닌 refresh는 false로 처리하며 일반 요청은 제한하지 않는다.
+제한 초과 시 429 `{"message":"잠시 후 다시 시도해 주세요."}`. 제한은 프로세스 메모리·monotonic 시계로 관리하며 최대 4096개 활성 키가 찬 경우 새 refresh 요청도 429다. 60초가 지난 항목은 정리한다.
 
 요청 필드:
 
 | 필드 | 타입 | 필수 여부 | 허용값·기본값·제한 |
 |---|---|---|---|
 | `mode` (본문) | string | 필수 | priority / discover / focus |
+| `refresh` (본문) | boolean | 선택 | true일 때 캐시 무시; 생략/false/boolean 아닌 값은 기존 캐시 사용 |
 
 입력 타입·범위 위반: 공통 400 `{message, errors}`(플래너는 직접 검증하므로 `{message}`).
 
@@ -923,6 +967,7 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 {
   "mode": "priority",
   "generated_at": "2030-10-08T12:00:00+09:00",
+  "summary": "추천 활동 1개 중 3일 안에 진행할 활동이 1개 있어요.",
   "items": [
     {
       "opportunity_id": "o1",
@@ -964,6 +1009,7 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 {
   "mode": "discover",
   "generated_at": "2030-10-08T12:00:00+09:00",
+  "summary": "추천 활동 1개 중 3일 안에 진행할 활동이 1개 있어요.",
   "items": [
     {
       "opportunity_id": "o1",
@@ -1005,6 +1051,7 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 {
   "mode": "focus",
   "generated_at": "2030-10-08T12:00:00+09:00",
+  "summary": "추천 활동 1개 중 3일 안에 진행할 활동이 1개 있어요.",
   "items": [
     {
       "opportunity_id": "o1",
@@ -1053,7 +1100,7 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 | 필드 | 타입 | 필수 여부 | 허용값·기본값·제한 |
 |---|---|---|---|
 | `message` (본문) | string | 필수 | trim 후 1~3000자 |
-| `mode` (본문) | string | 선택 | study/explorer/balanced; 그 외 study |
+| `mode` (본문) | string | 선택 | general(기본)/priority/discover/focus; explorer→discover, study·balanced→general; 미지정·모르는 값은 general |
 | `history` (본문) | array<object> | 선택 | role=user/assistant, content=string; 빈 항목 제거 후 최근 12개, content 최대 2000자로 자름 |
 
 입력 타입·범위 위반: 공통 400 `{message, errors}`(플래너는 직접 검증하므로 `{message}`).
@@ -1071,6 +1118,18 @@ overrides는 `{일정ID: {start_date?, end_date?, start_time?, end_time?, locati
 ```
 
 ## 관리자
+
+### `GET /api/admin/feedback`
+
+관리자 로그인: 필수(기존 관리자 권한 검사). GET이므로 Origin 검사는 하지 않는다.
+쿼리: limit 정수 기본 50, 1~200; offset 정수 기본 0, 0 이상.
+created_at 내림차순, 동률이면 id 내림차순. 성공 200:
+
+```json
+{"total": 1, "items": [{"id": 1, "user_id": 2, "type": "suggestion", "message": "서비스 의견", "reply_email": null, "created_at": "2026-10-11T00:04:00+00:00"}]}
+```
+
+미로그인 401, 일반 사용자 403 `{message}`. 잘못된 쿼리는 기존 검증 방식 400 `{message, errors}`.
 
 
 ### `GET /api/admin/notices`
@@ -1509,10 +1568,12 @@ revision 비교 후 기록. save=비공개 검토 대기, approve=공개, reject
 ## 프론트 개편 때 바꿔야 할 것
 
 - 설정/추천 AI 모드 ID를 priority/discover/focus로 교체한다. 기존 채팅 모드와 혼동하지 않는다.
-- 알림 설정을 `{d3,d1,email}`로 교체하고 PUT 기본값 복원을 고려해 전체 설정을 전송한다.
+- 알림 설정을 `{d3,d1,email}`로 교체한다. 설정 PUT는 변경 필드만 전송할 수 있고 notifications도 키별 병합된다.
 - 프로필 입력을 `PUT /api/user/profile`로 연결한다(전공, 학년 1~6/null, 재학 상태).
 - 알림함 4개 API: 목록, unread-count, 개별 읽음, read-all을 연결한다.
 - `POST /api/planner/recommendations`의 구조화된 모드별 응답과 한국어 라벨을 적용한다.
-- `/api/planner/chat`을 계속 쓸지 결정 필요. 정책 7은 신규 화면에서 이어 쓰지 않는 방향이며, 현재 API 동작은 기존 프론트를 위해 유지한다.
+- `/api/planner/chat`은 기존 응답 `{reply}`를 유지하며 기본 general로 내 일정 질문에 답한다.
+- 새로 받기는 추천 요청에 refresh=true를 보내고 429 message를 표시한다. summary가 문자열이면 표시한다.
+- 첫 로그인은 Profile.onboarding_done으로 판단하고 완료 시 onboarding PUT를 호출한다. 탈퇴는 `/api/users/me` DELETE를 사용한다.
 - 일정 카드는 D-day·제목/출처·기간·장소·일정 등록으로 구성하고, 상세에서 공지별 일정·원문 링크·개인 수정·면접 개별 등록을 연결한다.
 - 확인 필요 일정은 `review_required`로 안내하고 확인 등록, 등록 후 수정과 sync를 연결한다. 오류는 message를 표시하되 입력 검증의 errors도 허용한다.

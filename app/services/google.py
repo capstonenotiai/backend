@@ -15,6 +15,7 @@ from app.models import Event
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 SCOPES = "openid email profile https://www.googleapis.com/auth/calendar.events"
@@ -64,6 +65,12 @@ def exchange_code(code: str) -> dict:
 
 def refresh_access_token(refresh_token: str) -> str:
     return _post_token({"refresh_token": refresh_token, "grant_type": "refresh_token"})["access_token"]
+
+
+def revoke_token(refresh_token: str) -> None:
+    response = httpx.post(REVOKE_URL, data={'token': refresh_token}, timeout=15)
+    if response.status_code != 200:
+        raise GoogleError(f'토큰 철회 실패 ({response.status_code})')
 
 
 def fetch_userinfo(access_token: str) -> dict:

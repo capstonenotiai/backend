@@ -40,11 +40,16 @@ def to_schema(pref: Preference) -> Preferences:
 
 def save(db: Session, user: User, data: Preferences) -> Preferences:
     pref = get_or_create_preference(db, user)
-    # 모드 목록이 바뀌어도 모르는 값은 기본 모드로 (프론트 getAiMode 와 같은 규칙)
-    pref.ai_mode = data.ai_mode if data.ai_mode in AI_MODE_IDS else DEFAULT_AI_MODE
-    pref.interests = list(dict.fromkeys(data.interests))
-    pref.enabled_sources = dict(data.enabled_sources)
-    pref.notifications = data.notifications.model_dump()
-    pref.auto_mode_recommend = data.auto_mode_recommend
+    fields = data.model_fields_set
+    if 'ai_mode' in fields:
+        pref.ai_mode = data.ai_mode if data.ai_mode in AI_MODE_IDS else DEFAULT_AI_MODE
+    if 'interests' in fields:
+        pref.interests = list(dict.fromkeys(data.interests))
+    if 'enabled_sources' in fields:
+        pref.enabled_sources = dict(data.enabled_sources)
+    if 'notifications' in fields:
+        pref.notifications = {**(pref.notifications or {}), **data.notifications.model_dump(exclude_unset=True)}
+    if 'auto_mode_recommend' in fields:
+        pref.auto_mode_recommend = data.auto_mode_recommend
     db.commit()
     return to_schema(pref)

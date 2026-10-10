@@ -34,7 +34,8 @@ async def recommendations(request: Request, user: User = Depends(get_current_use
         mode = planner_recommendations.parse_request(body)
         now = now_local()
         payload, server_items = planner_context.build_recommendation_context(db, user, mode, now)
-        return await run_in_threadpool(planner_recommendations.recommend, user.id, payload, server_items, now)
+        return await run_in_threadpool(planner_recommendations.recommend, user.id, payload, server_items, now,
+                                      refresh=body.get('refresh') is True)
     except planner.PlannerError as error:
         return JSONResponse({'message': error.message}, status_code=error.status)
 

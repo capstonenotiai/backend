@@ -17,6 +17,21 @@ CACHE_SECONDS = 30 * 60
 CACHE_MAX_ENTRIES = 256
 _cache = {}
 _cache_lock = Lock()
+REFRESH_SECONDS = 60
+REFRESH_MAX_ENTRIES = 4096
+_refresh_times = {}
+_refresh_lock = Lock()
+
+
+def allow_refresh(user_id, mode):
+    clock = monotonic()
+    key = (user_id, mode)
+    with _refresh_lock:
+        for stale in [entry for entry, timestamp in _refresh_times.items() if clock - timestamp >= REFRESH_SECONDS]:
+            del _refresh_times[stale]
+        if key in _refresh_times or len(_refresh_times) >= REFRESH_MAX_ENTRIES:
+            raise PlannerError('잠시 후 다시 시도해 주세요.', 429)
+        _refresh_times[key] = clock
 
 
 def parse_request(body):
@@ -62,7 +77,10 @@ def create_judgment(payload):
         return None
 
 
-def recommend(user_id, payload, server_items, now):
+def recommend(user_id, payload, server_items, now, refresh=False):
+    refresh = refresh is True
+    if refresh:
+        allow_refresh(user_id, payload['mode'])
     settings = get_settings()
     snapshot = {'payload': payload, 'server_items': server_items, 'prompt_version': PLANNER_PROMPT_VERSION,
                 'model': settings.planner_model, 'max_output_tokens': settings.planner_max_output_tokens}
@@ -73,7 +91,7 @@ def recommend(user_id, payload, server_items, now):
         for stale in [entry for entry, (expires, _) in _cache.items() if expires <= clock]:
             del _cache[stale]
         cached = _cache.get(key)
-        if cached:
+        if cached and not refresh:
             return deepcopy(cached[1])
     if payload['opportunities']:
         judgments, corrections = validate_output(payload, create_judgment(payload))
@@ -82,6 +100,10 @@ def recommend(user_id, payload, server_items, now):
     result = {'mode': payload['mode'], 'generated_at': now.isoformat(),
               'items': [{**item, **server_items[item['opportunity_id']]} for item in judgments],
               'needs_grouping_check': deepcopy(payload.get('needs_grouping_check', [])), 'corrections': corrections}
+    count = len(result['items'])
+    imminent = sum(isinstance(item.get('days_until_deadline'), int)
+                   and 0 <= item['days_until_deadline'] <= 3 for item in result['items'])
+    result['summary'] = f'추천 활동 {count}개 중 3일 안에 진행할 활동이 {imminent}개 있어요.' if count else '현재 추천할 활동이 없어요.'
     with _cache_lock:
         while len(_cache) >= CACHE_MAX_ENTRIES:
             del _cache[min(_cache, key=lambda entry: _cache[entry][0])]

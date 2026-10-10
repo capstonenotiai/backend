@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, select, text
 
 from app.deps import get_or_create_dev_user
 from app.models import Event, Notice, Preference, User, UserEvent, UserNotice
-from app.services.planner import MODE_PROMPTS
+from app.services.planner import MODE_PROMPTS, MODE_ALIASES, DEFAULT_MODE
 from app.services.planner_facts import SEOUL, derived_event_facts, opportunity_facts, pairwise_conflicts
 
 NOW = datetime(2030, 10, 8, 12, tzinfo=SEOUL)
@@ -76,7 +76,7 @@ def test_chat_mode_compatibility(client, monkeypatch, mode):
     monkeypatch.setattr('app.services.planner.create_reply', lambda instructions, messages: calls.append((instructions, messages)) or '응답')
     response = client.post('/api/planner/chat', json={'message': '내 일정', 'mode': mode})
     assert response.status_code == 200 and response.json() == {'reply': '응답'}
-    expected = mode if mode in MODE_PROMPTS else 'study'
+    expected = mode if mode in MODE_PROMPTS else MODE_ALIASES.get(mode, DEFAULT_MODE)
     assert MODE_PROMPTS[expected] in calls[0][0]
     assert calls[0][1] == [{'role': 'user', 'content': '내 일정'}]
     if mode in ('priority', 'discover', 'focus'):
@@ -286,7 +286,7 @@ def test_profile_migration_existing_columns_downgrade_and_row_preservation(tmp_p
         conn.execute(text("UPDATE preferences SET major='keep'"))
         run_migrations(conn)
         assert conn.execute(text('SELECT major,grade,enrollment_status FROM preferences')).one() == ('keep', None, 'unknown')
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0009'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0010'
         config = Config()
         config.set_main_option('script_location', str(BACKEND_ROOT / 'migrations'))
         config.attributes['connection'] = conn

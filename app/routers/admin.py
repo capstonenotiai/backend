@@ -5,8 +5,13 @@ from app.db import get_db
 from app.deps import require_admin
 from app.models import Notice, Event, ReviewLog, User, EventReport
 from app.services.review import ReviewIn, apply_review, snapshot
+from app.services import feedback as feedback_service
 
 router = APIRouter(prefix='/api/admin',tags=['admin'],dependencies=[Depends(require_admin)])
+
+@router.get('/feedback')
+def feedback(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
+    return feedback_service.list_feedback(db, limit, offset)
 
 @router.get('/notices')
 def notices(state: str = 'needs_review',limit: int = Query(30,ge=1,le=100),
