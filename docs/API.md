@@ -297,7 +297,7 @@ reply_email: 선택 문자열/null, 양끝 공백 제거 후 `@` 포함 및 255�
 [{"id": 1, "event_id": 12, "title": "행사 제목", "reason": "date", "memo": "날짜 확인", "status": "received", "created_at": "2026-10-11T00:04:00+00:00"}]
 ```
 
-title은 이벤트가 없으면 null. reason·memo는 기존 신고 필드 그대로다. 현재 모델에는 처리 여부 필드가 없어 status는 모두 received다(관리자 검토 상태로 추측하지 않는다). 미로그인 401 `{message}`.
+title은 이벤트가 없으면 null. reason·memo는 기존 신고 필드 그대로다. status는 미처리이면 received, 관리자 승인·거절로 처리된 신고(resolved_at 존재)는 resolved다. 미로그인 401 `{message}`.
 
 ## 일정
 
@@ -1130,21 +1130,34 @@ refresh=true는 사용자·모드별 60초에 한 번 허용한다(실패한 생
 ### `GET /api/admin/feedback`
 
 관리자 로그인: 필수(기존 관리자 권한 검사). GET이므로 Origin 검사는 하지 않는다.
-쿼리: limit 정수 기본 50, 1~200; offset 정수 기본 0, 0 이상.
+쿼리: limit 정수 기본 50, 1~200; offset 정수 기본 0, 0 이상. type은 inconvenience|suggestion|praise|other이며 생략하면 전체다. 잘못된 type은 400 `{message}`.
+응답 counts는 필터·페이지와 무관한 전체 종류별 개수, total은 선택한 종류의 전체 개수다.
 created_at 내림차순, 동률이면 id 내림차순. 성공 200:
 
 ```json
-{"total": 1, "items": [{"id": 1, "user_id": 2, "type": "suggestion", "message": "서비스 의견", "reply_email": null, "created_at": "2026-10-11T00:04:00+00:00"}]}
+{"total": 1, "counts": {"all": 1, "inconvenience": 0, "suggestion": 1, "praise": 0, "other": 0}, "items": [{"id": 1, "user_id": 2, "type": "suggestion", "message": "서비스 의견", "reply_email": null, "created_at": "2026-10-11T00:04:00+00:00"}]}
 ```
 
 미로그인 401, 일반 사용자 403 `{message}`. 잘못된 쿼리는 기존 검증 방식 400 `{message, errors}`.
 
 
+### `GET /api/admin/notices/counts`
+
+관리자 로그인 필수. 성공 200:
+
+```json
+{"needs_review": 0, "reported": 0, "failed": 0, "pending": 0, "retry_pending": 0, "processing": 0, "approved": 0, "rejected": 0, "extracted": 0, "no_events": 0, "all": 0}
+```
+
+reported는 미처리 신고가 하나 이상 있는 공지 수이며 상태별 수와 중복될 수 있다. all은 전체 공지 수. 미로그인 401, 일반 사용자 403.
+
 ### `GET /api/admin/notices`
 
 로그인: 필수, 관리자 권한 및 변경 시 허용 Origin 필요.
 
-state=all/pending/retry_pending/processing/needs_review/approved/rejected/failed/extracted/no_events/reported. 기본 needs_review.
+state=all/pending/retry_pending/processing/needs_review/approved/rejected/failed/extracted/no_events/reported. 기본 needs_review. reported는 미처리 신고(resolved_at=null)가 있는 공지만 포함한다.
+목록에 published_at(YYYY-MM-DD 또는 null), crawled_at(ISO 8601), open_report_count(미처리 신고 수), reason을 추가한다.
+reason은 failed이면 오류의 공백을 정리한 최대 200자 요약(없으면 null), 나머지는 일정 ID 오름차순 첫 유효 confirmation_reason의 공백을 정리한 한 줄(없으면 null)이다.
 
 요청 필드:
 
@@ -1172,7 +1185,11 @@ state=all/pending/retry_pending/processing/needs_review/approved/rejected/failed
       "state": "extracted",
       "revision": 0,
       "source": "cbnu",
-      "error": null
+      "error": null,
+      "published_at": null,
+      "crawled_at": "2026-10-18T00:00:00+00:00",
+      "reason": null,
+      "open_report_count": 0
     }
   ]
 }
@@ -1247,7 +1264,9 @@ state=all/pending/retry_pending/processing/needs_review/approved/rejected/failed
       "id": 1,
       "event_id": 1,
       "reason": "date",
-      "memo": "날짜 확인 요청"
+      "memo": "날짜 확인 요청",
+      "created_at": "2026-10-18T00:00:00+00:00",
+      "resolved_at": null
     }
   ],
   "history": []
@@ -1259,6 +1278,8 @@ state=all/pending/retry_pending/processing/needs_review/approved/rejected/failed
 로그인: 필수, 관리자 권한 및 변경 시 허용 Origin 필요.
 
 revision 비교 후 기록. save=비공개 검토 대기, approve=공개, reject=제외. 누락된 기존 일정은 거절 처리하며 삭제하지 않는다.
+승인·거절 성공 시 해당 공지의 모든 미처리 신고를 같은 트랜잭션에서 처리하고 resolved_reports에 처리 개수를 반환한다. save는 신고를 처리하지 않으며 resolved_reports=0.
+상세 reports의 created_at·resolved_at은 ISO 8601이며 미처리는 resolved_at=null이다. 계정 삭제 시 다른 사용자의 신고는 유지하고 resolved_by만 null로 바꾼다.
 
 요청 필드:
 
@@ -1294,7 +1315,8 @@ revision 비교 후 기록. save=비공개 검토 대기, approve=공개, reject
 {
   "id": 1,
   "revision": 1,
-  "state": "needs_review"
+  "state": "needs_review",
+  "resolved_reports": 0
 }
 ```
 

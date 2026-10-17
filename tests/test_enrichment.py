@@ -448,7 +448,7 @@ def test_migration_skip_downgrade_and_cascade(tmp_path):
         conn.execute(NoticeEnrichment.__table__.insert().values(notice_id=1, prompt_version='keep', facts={'keep': True}))
         run_migrations(conn)
         assert conn.execute(text('SELECT prompt_version FROM notice_enrichments')).scalar() == 'keep'
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0010'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0011'
         conn.execute(delete(Notice).where(Notice.id == 1))
         assert conn.execute(text('SELECT COUNT(*) FROM notice_enrichments')).scalar() == 0
         config = Config()

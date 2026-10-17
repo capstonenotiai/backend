@@ -346,7 +346,7 @@ def test_migration_backfill_downgrade_and_existing_schema(tmp_path):
         command.stamp(config, '0009')
         connection.execute(text('UPDATE users SET onboarding_done=0 WHERE id=2'))
         run_migrations(connection)
-        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0010'
+        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0011'
         assert connection.execute(text('SELECT onboarding_done FROM users WHERE id=2')).scalar() == 0
         connection.execute(text("INSERT INTO notices(id,site,source_url,title_raw,raw_text,crawled_at) VALUES (1,'cbnu','https://example.com/review','공지','원문','2030-01-01')"))
         connection.execute(text("INSERT INTO review_logs(notice_id,actor_id,action,reason,before,after,created_at) VALUES (1,NULL,'approve','검토','[]','[]','2030-01-01')"))

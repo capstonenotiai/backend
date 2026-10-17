@@ -10,5 +10,5 @@ def list_mine(db: Session, user: User) -> list[dict]:
                       .where(EventReport.user_id == user.id)
                       .order_by(EventReport.created_at.desc(), EventReport.id.desc())).all()
     return [{'id': report.id, 'event_id': report.event_id, 'title': title, 'reason': report.reason,
-             'memo': report.memo, 'status': 'received', 'created_at': as_aware(report.created_at).isoformat()}
+             'memo': report.memo, 'status': 'resolved' if report.resolved_at else 'received', 'created_at': as_aware(report.created_at).isoformat()}
             for report, title in rows]

@@ -17,6 +17,10 @@
   ],
   [
     "GET",
+    "/api/admin/notices/counts"
+  ],
+  [
+    "GET",
     "/api/admin/notices/{notice_id}"
   ],
   [

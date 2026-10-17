@@ -127,6 +127,18 @@ def test_frontend_response_keys(client, db, monkeypatch):
     admin_feedback = call('GET', '/api/admin/feedback')
     keys('GET /api/admin/feedback', admin_feedback)
     shapes['admin feedback item'] = sorted(admin_feedback['items'][0])
+    counts = call('GET', '/api/admin/notices/counts')
+    keys('GET /api/admin/notices/counts', counts)
+    notices = call('GET', '/api/admin/notices?state=all')
+    keys('GET /api/admin/notices', notices)
+    shapes['admin notice item'] = sorted(notices['items'][0])
+    detail = call('GET', f'/api/admin/notices/{notice.id}')
+    keys('GET /api/admin/notices/{notice_id}', detail)
+    shapes['admin report item'] = sorted(detail['reports'][0])
+    shapes['admin feedback counts'] = sorted(admin_feedback['counts'])
+    from test_admin_review import ORIGIN, payload
+    reviewed = call('POST', f'/api/admin/notices/{notice.id}/review', json=payload(), headers=ORIGIN)
+    keys('POST /api/admin/notices/{notice_id}/review', reviewed)
     frozen('api_response_keys.json', shapes)
     service._cache.clear()
 

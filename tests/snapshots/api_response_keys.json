@@ -275,6 +275,7 @@
     "title"
   ],
   "GET /api/admin/feedback": [
+    "counts",
     "items",
     "total"
   ],
@@ -285,5 +286,68 @@
     "reply_email",
     "type",
     "user_id"
+  ],
+  "GET /api/admin/notices/counts": [
+    "all",
+    "approved",
+    "extracted",
+    "failed",
+    "needs_review",
+    "no_events",
+    "pending",
+    "processing",
+    "rejected",
+    "reported",
+    "retry_pending"
+  ],
+  "GET /api/admin/notices": [
+    "items",
+    "total"
+  ],
+  "admin notice item": [
+    "crawled_at",
+    "error",
+    "id",
+    "open_report_count",
+    "published_at",
+    "reason",
+    "revision",
+    "source",
+    "state",
+    "title"
+  ],
+  "GET /api/admin/notices/{notice_id}": [
+    "body",
+    "error",
+    "events",
+    "history",
+    "id",
+    "model_output",
+    "reports",
+    "revision",
+    "source_url",
+    "state",
+    "title"
+  ],
+  "admin report item": [
+    "created_at",
+    "event_id",
+    "id",
+    "memo",
+    "reason",
+    "resolved_at"
+  ],
+  "admin feedback counts": [
+    "all",
+    "inconvenience",
+    "other",
+    "praise",
+    "suggestion"
+  ],
+  "POST /api/admin/notices/{notice_id}/review": [
+    "id",
+    "resolved_reports",
+    "revision",
+    "state"
   ]
 }

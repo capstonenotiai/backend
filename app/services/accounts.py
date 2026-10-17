@@ -17,6 +17,7 @@ def delete_account(db: Session, user: User) -> None:
             # Provider/transport errors must never expose tokens or block deletion.
             log.warning('Google token revocation failed during account deletion')
     db.execute(update(ReviewLog).where(ReviewLog.actor_id == user.id).values(actor_id=None))
+    db.execute(update(EventReport).where(EventReport.resolved_by == user.id).values(resolved_by=None))
     for model in (Preference, UserEvent, UserNotice, Notification, EventReport, ServiceFeedback):
         db.execute(delete(model).where(model.user_id == user.id))
     db.execute(delete(User).where(User.id == user.id))

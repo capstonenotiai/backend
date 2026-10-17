@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, update
 
-from app.models import Event, Notice, ReviewLog, UserEvent
+from app.models import Event, Notice, ReviewLog, UserEvent, EventReport, utcnow
 from app.services.category import categorize
 from app.services.display_rules import service_excluded
 from app.timeutil import to_local
@@ -161,5 +161,11 @@ def apply_review(db, notice_id, payload, actor):
     after = [snapshot(e) for e in db.scalars(select(Event).where(Event.notice_id==notice_id).order_by(Event.id))]
     db.add(ReviewLog(notice_id=notice_id,actor_id=actor.id,action=payload.action,reason=payload.reason,
                      before=before,after=after))
+    resolved_reports = 0
+    if payload.action in ('approve', 'reject'):
+        result = db.execute(update(EventReport).where(
+            EventReport.event_id.in_(select(Event.id).where(Event.notice_id == notice_id)),
+            EventReport.resolved_at.is_(None)).values(resolved_at=utcnow(), resolved_by=actor.id))
+        resolved_reports = result.rowcount
     db.commit()
-    return {'id':notice.id,'revision':notice.revision,'state':notice.extraction_state}
+    return {'id':notice.id,'revision':notice.revision,'state':notice.extraction_state,'resolved_reports':resolved_reports}
