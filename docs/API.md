@@ -53,7 +53,9 @@ Preferences는 관심분야·출처 키를 위 목록으로 제한하지 않는�
 `ai_extracted`는 카드에 AI 표시를 하라는 뜻이 아니다. `review_required`일 때만 등록 확인을 유도하며, 날짜 등 개인 수정은 `/overrides`로 저장한다.
 추천 응답은 서버 사실과 모드 판단을 합친다. fact_refs는 해당 활동의 검증 Fact ID 목록, corrections는 서버 보정 코드 목록, needs_grouping_check는 별도 확인할 `{opportunity_id,title,reason}` 목록이다. 이는 공지 하나 안에 여러 활동이 섞였거나 이전 공지와의 관계가 불명확해서 원문 확인이 필요한 공지이며, 서로 다른 공지를 합친 목록이 아니다. reason은 해당 공지 보강의 grouping_review_reason이며 사유가 없으면 빈 문자열이다. 내부 플래너 payload에도 같은 필드를 제공한다. corrections는 사용자 화면에 코드 그대로 노출하지 않는다. 캐시는 사용자·모드·입력·프롬프트 버전별 30분이다. refresh=true는 캐시를 건너뛰고 성공한 결과로 교체한다. summary는 캐시 응답에도 포함되는 서버 생성 한 문장으로, 추천 개수와 행동일까지 0~3일 남은 항목 개수를 설명한다.
 
-후보 순서는 priority에서 등록·관심 저장 공지(user_managed)를 먼저, 그 안에서 urgency·필수·조기 마감 순으로 정한다. 비관리 공지는 관심분야 direct·related인 경우만 포함한다. discover·focus는 관심분야 direct·related, 보강 누락 여부(missing은 뒤), 행동일 순으로 고른다. focus의 관심분야 제한과 일정 구성 확인 목록 분리는 유지한다. 자유 채팅은 등록·관심 일정 최대 60건과 관심분야 우선 마감 임박 일정 최대 20건을 사용하며 숨긴 공지는 제외한다.
+후보 순서는 priority에서 등록·관심 저장 공지(user_managed)를 먼저, 그 안에서 urgency·필수·조기 마감 순으로 정한다. 비관리 공지는 관심분야 direct·related인 경우만 포함한다. discover·focus는 관심분야 direct·related, 보강 누락 여부(missing은 뒤), 행동일 순으로 고른다. 검증된 audience가 excludes_university이면 discover·focus에서 제외한다(grouping_review_required이면 자격은 needs_check). priority는 관리 중 공지를 자격 미충족이어도 유지한다. discover·focus의 비관리 공지는 대표 행동일이 서울 기준 D+2 이상이어야 한다(날짜 없음은 기존 규칙 유지). focus의 관심분야 제한과 일정 구성 확인 목록 분리는 유지한다. 자유 채팅은 등록·관심 일정 최대 60건과 관심분야 우선 마감 임박 일정 최대 20건을 사용하며 숨긴 공지는 제외한다.
+
+내부 opportunities의 enrichment.audience는 open_to_university / excludes_university / unclear 중 하나다. 대상 문구가 원문에서 검증된 경우에만 보강 판정을 사용하며, 근거가 없거나 예전 보강이면 unclear다. 보강 버전은 enrich-v2, 추천 캐시 프롬프트 버전은 planner-v5다. 접수 end_date가 비어 있으면 사이트 마감일로 보완하되 시작일보다 이른 마감일은 사용하지 않는다. 보완된 일정은 기존 review_reason에 "접수 마감일을 사이트 정보로 채웠어요. 원문에서 확인해 주세요."를 제공하며 사용자별 수정 값은 유지한다.
 
 Google 캘린더 등록 시 접수·제출(application/submission)에 종료 시각만 있으면 시작일~마감일의 종일 기간 일정으로 등록한다(시작일이 없으면 마감일 하루). 제목 끝에 ` (마감 HH:MM)`, 설명 첫 줄에 `접수 마감: YYYY-MM-DD HH:MM`을 붙인다. 본행사 및 시작 시각이 있는 일정은 기존 시각 처리를 유지한다. 이미 Google에 등록된 일정은 자동 변경하지 않으며, 해제 후 다시 등록하면 새 방식으로 반영된다.
 
@@ -1501,6 +1503,7 @@ revision 비교 후 기록. save=비공개 검토 대기, approve=공개, reject
       }
     ],
     "enrichment": {
+      "audience": "unclear",
       "notice_kind": "normal",
       "grouping_review_required": false,
       "grouping_review_reason": "",

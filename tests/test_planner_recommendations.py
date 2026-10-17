@@ -72,7 +72,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert set(output['items'][0]) == set(schema['properties']['items']['items']['properties'])
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v4'
+    assert PLANNER_PROMPT_VERSION == 'planner-v5'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 
@@ -219,8 +219,8 @@ def test_api_normal_path_and_server_facts(client, db, monkeypatch, mode):
     pref = get_or_create_preference(db, user)
     pref.ai_mode, pref.interests = 'discover', ['학사']
     notice = make_notice(db)
-    event = make_event(db, notice)
-    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v1', facts=empty_enrichment('ok')))
+    event = make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
+    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=empty_enrichment('ok')))
     db.commit()
     calls = []
     monkeypatch.setattr(service, 'create_judgment', lambda payload: calls.append(copy.deepcopy(payload)) or output_for(payload))
@@ -231,8 +231,8 @@ def test_api_normal_path_and_server_facts(client, db, monkeypatch, mode):
     assert body['corrections'] == [] and body['needs_grouping_check'] == []
     item = next(item for item in body['items'] if item['opportunity_id'] == f'o{notice.id}')
     assert item['title'] == notice.title_raw and item['source_url'] == notice.source_url
-    assert item['focus_event_id'] == f'e{event.id}' and item['action_date'] == '2030-10-08'
-    assert item['start_date'] == item['end_date'] == '2030-10-08' and item['days_until_deadline'] == 0
+    assert item['focus_event_id'] == f'e{event.id}' and item['action_date'] == '2030-10-10'
+    assert item['start_date'] == item['end_date'] == '2030-10-10' and item['days_until_deadline'] == 2
     assert item['next_step_type'] == item['priority_context']['next_step_type']
     db.refresh(pref)
     assert pref.ai_mode == 'discover' and len(calls) == 1
@@ -271,7 +271,7 @@ def test_api_invalid_json_size_missing_key_and_auth(client, db, monkeypatch):
     assert client.post('/api/planner/recommendations', content=b'bad').status_code == 400
     assert client.post('/api/planner/recommendations', content=b'x' * (65 * 1024)).status_code == 413
     notice = make_notice(db)
-    make_event(db, notice)
+    make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
     db.commit()
     response = client.post('/api/planner/recommendations', json={'mode': 'priority'})
     assert response.status_code == 500 and set(response.json()) == {'message'}
@@ -309,7 +309,7 @@ def test_cache_reuse_expiration_isolation_invalidation_and_copies(monkeypatch):
 def test_gpt_errors_not_cached_and_api_message(client, db, monkeypatch):
     get_or_create_preference(db, get_or_create_dev_user(db)).interests = ['학사']
     notice = make_notice(db)
-    make_event(db, notice)
+    make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
     db.commit()
     calls = []
     def failed(payload):
@@ -326,10 +326,10 @@ def test_bad_gpt_output_does_not_change_db(client, db, monkeypatch):
     user = get_or_create_dev_user(db)
     pref = get_or_create_preference(db, user)
     notice = make_notice(db)
-    event = make_event(db, notice)
+    event = make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
     facts = empty_enrichment('ok')
     facts['facts'] = [{'fact_id': f'o{notice.id}.ben1', 'type': 'benefit', 'value': '면접 기회', 'evidence': '개인 원문'}]
-    enriched = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v1', facts=facts)
+    enriched = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=facts)
     state = UserEvent(user_id=user.id, event_id=event.id, bookmarked=True, action_status='pending')
     notice_state = UserNotice(user_id=user.id, notice_id=notice.id, dismissed=False)
     db.add_all([enriched, state, notice_state])
@@ -375,10 +375,10 @@ def test_sdk_strict_request_privacy_and_model(client, db, monkeypatch, mode):
     pref.interests = ['학사']
     notice = make_notice(db)
     notice.raw_text = 'PRIVATE_RAW_MARKER'
-    make_event(db, notice)
+    make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
     facts = empty_enrichment('ok')
     facts['facts'] = [{'fact_id': f'o{notice.id}.ben1', 'type': 'benefit', 'value': '면접 기회', 'evidence': 'PRIVATE_EVIDENCE_MARKER'}]
-    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v1', facts=facts))
+    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=facts))
     db.commit()
     payload, _ = planner_context.build_recommendation_context(db, user, mode, NOW)
     calls = fake_sdk(monkeypatch, SimpleNamespace(status='completed', output_text=json.dumps(output_for(payload))))

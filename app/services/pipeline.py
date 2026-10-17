@@ -23,6 +23,7 @@ from app.config import get_settings
 from app.models import CrawlRun, Event, Notice, utcnow
 from app.schemas import SOURCE_IDS
 from app.services.category import categorize
+from app.services.application_end import fill_event_end
 from app.services.extractor import ExtractionResult, Extractor, ModelUnavailable, RetryableExtraction, get_extractor
 from app.services.notice_metadata import iso_publication, publication_from_metadata, application_deadline
 from app.timeutil import to_local
@@ -137,6 +138,7 @@ def extract_pending(db: Session, extractor: Extractor | None = None, limit: int 
                 result=ExtractionResult([result],{'legacy_prediction':asdict(result)})
             notice.extraction_result=result.raw
             for extracted in result.events:
+                fill_event_end(extracted, notice.application_end_date)
                 if extractor.name == 'model_api':
                     extracted.review_status = 'auto'
                     if (extracted.event_type in ('application', 'submission') and notice.application_end_date

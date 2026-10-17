@@ -32,6 +32,17 @@
     "title",
     "user_modified"
   ],
+  "internal opportunity enrichment": [
+    "audience",
+    "enrichment_status",
+    "events",
+    "facts",
+    "grouping_review_reason",
+    "grouping_review_required",
+    "is_mandatory",
+    "low_confidence_reasons",
+    "notice_kind"
+  ],
   "detail": [
     "dismissed",
     "events",

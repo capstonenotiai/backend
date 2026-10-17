@@ -17,7 +17,7 @@ from app.services.pipeline import RETRY_DELAYS
 from app.timeutil import as_aware
 
 log = logging.getLogger(__name__)
-ENRICHMENT_PROMPT_VERSION = 'enrich-v1'
+ENRICHMENT_PROMPT_VERSION = 'enrich-v2'
 ENRICHMENT_MAX_TEXT_CHARS = 12_000
 ENRICHMENT_MAX_ATTEMPTS = 3
 ENRICHMENT_PROMPT = """당신은 대학 공지의 추천용 의미 정보를 추출한다. JSON 스키마에 맞춰 반환한다.
@@ -32,6 +32,11 @@ ENRICHMENT_PROMPT = """당신은 대학 공지의 추천용 의미 정보를 추
 notice_kind는 이 공지의 명시적 연장(extension), 정정(correction), 취소(cancellation)를
 분류한다. 이전 공지 연결이 불명확하거나 여러 활동이 섞인 경우에만
 grouping_review_required=true로 하고 원문에 근거한 grouping_review_reason을 쓴다.
+참가·지원 대상이 명시되어 있고 대학생·대학원생이 지원할 수 없음이 분명할 때만
+audience=excludes_university다(초등학생·어린이만, 중·고교생만, 특정 지역 주민만,
+특정 기업 재직자만). 대학생·대학원생·청년·일반인·누구나·제한 없음이 포함되면
+open_to_university다. 연령만 있어 대학생 포함 여부가 애매하거나 대상이 없으면 unclear다.
+audience의 evidence는 대상 문구를 그대로 인용하고 근거가 없으면 unclear와 빈 evidence다.
 related_interests는 scholarship(장학), academic(학사), career(진로/취업),
 contest(공모전), activity(대외/학생활동) 중 원문에서 직접 연결되는 분야만 고른다.
 requirements는 grade(학년), enrollment_status(재학/휴학/졸업), major(전공), other로
@@ -66,6 +71,7 @@ def _array(item):
 
 
 ENRICHMENT_SCHEMA = _object(
+    audience=_claim(_string(('open_to_university', 'excludes_university', 'unclear'))),
     notice_kind=_claim(_string(('normal', 'extension', 'correction', 'cancellation'))),
     grouping_review_required=_claim({'type': 'boolean'}),
     grouping_review_reason=_claim(_string()),
@@ -105,7 +111,7 @@ def evidence_valid(evidence, source):
 
 
 def empty_enrichment(status='missing'):
-    return {'notice_kind': 'normal', 'grouping_review_required': False,
+    return {'audience': 'unclear', 'notice_kind': 'normal', 'grouping_review_required': False,
             'grouping_review_reason': '', 'enrichment_status': status, 'low_confidence_reasons': [],
             'is_mandatory': False, 'facts': [], 'events': []}
 
@@ -131,7 +137,7 @@ def validate_enrichment(output, notice_id, title_raw, raw_text, event_ids):
         result['facts'].append({'fact_id': fact_id, 'type': kind, 'value': value, 'evidence': evidence})
         return fact_id
 
-    for key in ('notice_kind', 'grouping_review_required', 'grouping_review_reason', 'is_mandatory'):
+    for key in ('audience', 'notice_kind', 'grouping_review_required', 'grouping_review_reason', 'is_mandatory'):
         item = output.get(key)
         value = item.get('value') if isinstance(item, dict) else None
         valid = validated(item, properties[key])
@@ -296,7 +302,7 @@ def enrich_pending(db, client=None, limit=None, now=None):
             validated = validate_enrichment(output, notice_id, notice.title_raw, notice.raw_text,
                                            [event['event_id'] for event in payload['events']])
             enrichment.facts = {'facts': validated['facts'], 'events': validated['events'],
-                                'is_mandatory': validated['is_mandatory'],
+                                'is_mandatory': validated['is_mandatory'], 'audience': validated['audience'],
                                 'low_confidence_reasons': validated['low_confidence_reasons']}
             for key in ('notice_kind', 'grouping_review_required', 'grouping_review_reason', 'enrichment_status'):
                 setattr(enrichment, key, validated[key])
@@ -348,6 +354,7 @@ def get_enrichment(db, notice_id):
     for key in ('notice_kind', 'grouping_review_required', 'grouping_review_reason'):
         result[key] = getattr(enrichment, key)
     stored = enrichment.facts or {}
+    result['audience'] = stored.get('audience', 'unclear')
     result['is_mandatory'] = stored.get('is_mandatory', False)
     result['low_confidence_reasons'] = stored.get('low_confidence_reasons', [])
     # No longer public / removed event IDs must not become planner evidence.

@@ -20,7 +20,7 @@ def opportunity(number=1, **values):
             'dismissed': False, 'user_managed': False, 'application_expired_not_done': False,
             'calendar_conflict': None, 'enrichment': empty_enrichment('ok'),
             'events': [{'event_id': f'e{number}', 'event_type': 'application', 'action_type': 'apply',
-                        'action_date': '2030-10-09', 'action_window': 'open', 'urgency': 'urgent',
+                        'action_date': '2030-10-10', 'action_window': 'open', 'urgency': 'urgent',
                         'review_status': 'ok', 'expired': False, 'action_status': 'pending'}]}
     data.update(values)
     return data
@@ -175,7 +175,7 @@ def test_focus_done_move_numeric_ties_unknown_dates_and_confirmation_fallback():
     assert planner.focus_event(item)['event_id'] == 'e2'
     item['events'][0].update(action_status='pending', expired=True)
     item.update(user_managed=True, application_expired_not_done=True)
-    item['events'].append({**item['events'][0], 'event_id': 'e11', 'action_date': '2030-10-09'})
+    item['events'].append({**item['events'][0], 'event_id': 'e11', 'action_date': '2030-10-10'})
     assert planner.focus_event(item)['event_id'] == 'e11'
     item.update(user_managed=False)
     assert planner.focus_event(item)['event_id'] == 'e2'
@@ -274,9 +274,9 @@ def test_payload_real_facts_enrichment_conflicts_and_grouping(db):
     pref.interests = ['학사']
     notices = [make_notice(db) for _ in range(3)]
     for index, notice in enumerate(notices):
-        event = make_event(db, notice)
+        event = make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
         enriched = empty_enrichment('ok')
-        db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v1',
+        db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2',
                                grouping_review_required=index == 2, facts=enriched))
         if index == 0:
             db.add(UserEvent(user_id=user.id, event_id=event.id, registered=True))
@@ -376,7 +376,7 @@ def test_focus_conflicts_only_selected_candidates_and_grouping_not_capped(db, mo
     db.commit()
     items = [opportunity(index) for index in range(1, 20)]
     for item in items:
-        item['events'][0].update(action_type='attend', start_date='2030-10-09', end_date='2030-10-09',
+        item['events'][0].update(action_type='attend', start_date='2030-10-10', end_date='2030-10-10',
                                  start_time='13:00', end_time='14:00', timezone='Asia/Seoul',
                                  title='일정', detail='', source_url='https://example.com/event', location='')
     items[-1]['enrichment']['grouping_review_required'] = True

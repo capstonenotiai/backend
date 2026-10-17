@@ -5,6 +5,7 @@ from datetime import datetime
 from app.services.planner_facts import SEOUL, all_opportunity_facts, pairwise_conflicts
 from app.services.preferences import get_or_create_preference
 
+DISCOVER_MIN_LEAD_DAYS = 2
 CANDIDATE_LIMITS = {'priority': 15, 'discover': 20, 'focus': 12}
 URGENCY_ORDER = {'urgent': 0, 'soon': 1, 'upcoming': 2, 'later': 3, 'none': 4}
 WINDOW_ORDER = {'open': 0, 'not_open': 1, 'unknown': 2}
@@ -82,6 +83,8 @@ def eligibility(opportunity, profile):
     # Low confidence may mean B8B removed a required claim whose evidence failed.
     uncertain = enrichment['enrichment_status'] == 'low_confidence'
     grouped = enrichment['grouping_review_required']
+    if enrichment.get('audience') == 'excludes_university':
+        return 'needs_check' if grouped else 'ineligible'
     for comparison in comparisons:
         if (comparison['type'] in ('grade', 'enrollment_status') and comparison['required'] is True
                 and comparison['matches'] is False and not grouped):
@@ -184,9 +187,20 @@ def _deadline_key(opportunity):
     return (day, _id_number(opportunity['opportunity_id']))
 
 
-def select_candidates(opportunities, profile, mode):
+def select_candidates(opportunities, profile, mode, now=None):
     if mode not in CANDIDATE_LIMITS:
         raise ValueError('Unknown planner mode')
+    now = now or datetime.now(SEOUL)
+    if now.tzinfo is None:
+        raise ValueError('Facts require a timezone-aware now')
+    today = now.astimezone(SEOUL).date()
+
+    def enough_lead(item):
+        focus = focus_event(item)
+        day = focus['action_date'] if focus else None
+        return (item['user_managed'] or not day
+                or (datetime.fromisoformat(day).date() - today).days >= DISCOVER_MIN_LEAD_DAYS)
+
     prepared = [{**item, 'eligibility': eligibility(item, profile),
                  'interest_match': interest_match(item, profile['interests']),
                  'priority_context': priority_context(item),
@@ -194,11 +208,11 @@ def select_candidates(opportunities, profile, mode):
     grouping = []
     if mode == 'priority':
         candidates = [item for item in prepared if not item['dismissed']
-                      and item['eligibility'] != 'ineligible' and focus_event(item)
+                      and (item['user_managed'] or item['eligibility'] != 'ineligible') and focus_event(item)
                       and (item['user_managed'] or item['interest_match']['direct'] or item['interest_match']['related'])]
         candidates.sort(key=priority_sort_key)
     else:
-        candidates = sorted((item for item in prepared if _discover_candidate(item)),
+        candidates = sorted((item for item in prepared if _discover_candidate(item) and enough_lead(item)),
                             key=lambda item: (not (item['interest_match']['direct'] or item['interest_match']['related']),
                                               item['enrichment']['enrichment_status'] == 'missing', _deadline_key(item)))
         if mode == 'focus':
@@ -262,7 +276,7 @@ def _build_context(db, user, mode, now=None):
     profile = {'major': pref.major, 'grade': pref.grade, 'enrollment_status': pref.enrollment_status,
                'interests': pref.interests or []}
     opportunities = all_opportunity_facts(db, user, now)
-    candidates, grouping = select_candidates(opportunities, profile, mode)
+    candidates, grouping = select_candidates(opportunities, profile, mode, now)
     result = {'mode': mode, 'opportunities': [_payload_opportunity(item, mode) for item in candidates]}
     if mode == 'discover':
         result['user'] = profile

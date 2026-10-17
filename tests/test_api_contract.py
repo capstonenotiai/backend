@@ -52,7 +52,7 @@ def test_frontend_response_keys(client, db, monkeypatch):
     pref.interests = ['academic']
     notice = make_notice(db)
     event = make_event(db, notice, category='academic')
-    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v1', facts=empty_enrichment('ok')))
+    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=empty_enrichment('ok')))
     db.add(Notification(user_id=user.id, event_id=event.id, kind='event_d1', target_date='2030-10-08',
                         title='내일 일정', message='일정을 확인해 주세요.'))
     db.commit()
@@ -72,6 +72,9 @@ def test_frontend_response_keys(client, db, monkeypatch):
     for item in events:
         assert sorted(item) == shapes['event']
     detail = call('GET', f'/api/events/{event.id}')
+    internal = call('GET', '/api/internal/planner/opportunities')
+    keys('internal opportunity enrichment', next(item['enrichment'] for item in internal
+                                               if item['opportunity_id'] == f'o{notice.id}'))
     keys('detail', detail)
     assert detail['events'] and all(sorted(item) == shapes['event'] for item in detail['events'])
     for method, path, kwargs in [
@@ -103,8 +106,8 @@ def test_frontend_response_keys(client, db, monkeypatch):
         assert all(sorted(item) == shapes['recommendation item ' + mode] for item in body['items'])
         shapes['priority_context ' + mode] = sorted(body['items'][0]['priority_context'])
     grouped = make_notice(db)
-    make_event(db, grouped, category='academic')
-    db.add(NoticeEnrichment(notice_id=grouped.id, state='done', prompt_version='enrich-v1',
+    make_event(db, grouped, category='academic', start_date='2030-10-10', end_date='2030-10-10')
+    db.add(NoticeEnrichment(notice_id=grouped.id, state='done', prompt_version='enrich-v2',
                            facts=empty_enrichment('ok'), grouping_review_required=True,
                            grouping_review_reason='공지 안의 활동 구성을 확인해 주세요.'))
     db.commit()
