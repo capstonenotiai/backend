@@ -7,7 +7,6 @@ id 는 프론트 src/config/interestCategories.js 와 같아야 함:
 """
 import re
 from collections import Counter
-from urllib.parse import parse_qs, urlparse
 
 CATEGORY_IDS = {"scholarship", "academic", "career", "contest", "activity"}
 
@@ -49,6 +48,26 @@ def contestkorea_board(code) -> str | None:
     return 'activity' if code.startswith('04') else 'contest'
 
 
+def contestkorea_metadata_board(metadata) -> str | None:
+    """상세 대표분야만 판정한다. 목록 코드나 기존 board는 보정 근거가 아니다."""
+    field = metadata.get('대표분야') if isinstance(metadata, dict) else None
+    if not isinstance(field, str):
+        return None
+    normalize = lambda value: re.sub(r'[\s•·]+', '', value)
+    activity = {'서포터즈·기자단', '교육·멘토링', '교육·강연·멘토링·세미나',
+                '교육', '강연', '멘토링', '세미나', '전시·행사·축제',
+                '기타대외활동', '기획·홍보·마케팅'}
+    contest = {'문학·문예', '네이밍·슬로건', '학문·과학·IT', '미술·디자인·웹툰',
+               '스포츠', '음악·콩쿠르·댄스', '사진·영상·영화제', '아이디어·건축·창업',
+               '요리·뷰티·오디션', '기타공모전'}
+    value = normalize(field)
+    if value in {normalize(name) for name in activity}:
+        return 'activity'
+    if value in {normalize(name) for name in contest}:
+        return 'contest'
+    return None
+
+
 def wevity_board(metadata) -> str | None:
     """목록 경로나 제목 대신 사이트의 분야 표시만 사용한다."""
     field = metadata.get('분야') if isinstance(metadata, dict) else None
@@ -67,26 +86,7 @@ def source_board(site, board, metadata, source_url='') -> str | None:
             return None
         return wevity_board(metadata)
     if site == 'contestkorea':
-        # 빈 메타 공지는 재분류 대상에서 제외한다(TASK_B11 §4).
-        if not isinstance(metadata, dict) or not metadata:
-            return None
-        if board in ('contest', 'activity'):
-            return board
-        code = metadata.get('category_code') or metadata.get('category')
-        result = contestkorea_board(code)
-        if result:
-            return result
-        code = parse_qs(urlparse(source_url).query).get('Txt_bcode', [''])[0]
-        result = contestkorea_board(code)
-        if result:
-            return result
-        # 크롤러가 저장한 사이트 목록명만 해석하며 제목은 사용하지 않는다.
-        category = metadata.get('category')
-        activity = {'서포터즈·기자단', '교육·멘토링', '전시·행사·축제', '기타대외활동', '기획·홍보·마케팅'}
-        contest = {'문학·문예', '네이밍·슬로건', '학문·과학·IT', '미술·디자인·웹툰', '스포츠',
-                   '음악·콩쿠르·댄스', '사진·영상·영화제', '아이디어·건축·창업', '요리·뷰티·오디션', '기타공모전'}
-        if isinstance(category, str):
-            return 'activity' if category in activity else 'contest' if category in contest else None
+        return contestkorea_metadata_board(metadata)
     return None
 
 

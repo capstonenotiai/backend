@@ -10,15 +10,15 @@ ContestKorea 크롤러
 import os
 import re
 import sys
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, parse_qsl, urlencode, urlunparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crawler.base import get, soup, clean_text
 from app.services.notice_metadata import publication_from_metadata, iso_publication
-from app.services.category import contestkorea_board
+from app.services.category import contestkorea_board, contestkorea_metadata_board
 
 BASE = "http://contestkorea.com"
-LIST_URL = BASE + "/sub/list.php?int_gbn=1&Txt_bcode={code}&page={page}"
+LIST_URL = BASE + "/sub/list.php?int_gbn={int_gbn}&Txt_bcode={code}&page={page}"
 CATEGORIES = {
     "문학·문예":        "030110001",
     "네이밍·슬로건":    "030210001",
@@ -41,6 +41,21 @@ SITE = "contestkorea"
 
 def post_id(url):
     return parse_qs(urlparse(url).query).get('str_no', [None])[0]
+
+
+def list_url(code: str, page: int) -> str:
+    return LIST_URL.format(int_gbn=2 if code.startswith('04') else 1, code=code, page=page)
+
+
+def detail_url(url: str) -> str:
+    parts = urlparse(url)
+    query = parse_qs(parts.query)
+    code = query.get('Txt_bcode', [''])[0]
+    if not code:
+        return url
+    params = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != 'int_gbn']
+    params.insert(0, ('int_gbn', '2' if code.startswith('04') else '1'))
+    return urlunparse(parts._replace(query=urlencode(params)))
 
 
 def activity_list_codes():
@@ -66,22 +81,26 @@ _DDAY_PAT = re.compile(r"^D[+\-]\d+$")
 
 
 def parse_list_page(page: int, code: str) -> list[dict]:
-    url = LIST_URL.format(code=code, page=page)
+    url = list_url(code, page)
     resp = get(url)
     if not resp:
         return []
 
     bs = soup(resp)
+    container = bs.select_one('div.list_style_2')
+    if container is None:
+        print(f"[ContestKorea/경고] 본문 목록 컨테이너 없음: {code}, 페이지 {page}")
+        return []
     items = []
     seen = set()
 
-    for a in bs.select("a"):
+    for a in container.select(".title a"):
         href = a.get("href", "")
         if "str_no=" not in href or "view.php" not in href:
             continue
 
         # urljoin에 실제 페이지 URL 사용 → /sub/ 경로 올바르게 처리
-        full_url = urljoin(url, href)
+        full_url = detail_url(urljoin(url, href))
         if full_url in seen:
             continue
 
@@ -97,6 +116,10 @@ def parse_list_page(page: int, code: str) -> list[dict]:
         if parent:
             spans = parent.find_all(string=re.compile(r"\d{4}[.\-]\d{2}"))
             date_txt = " ".join(s.strip() for s in spans[:2])
+            if not date_txt:
+                date_el = parent.select_one('.date')
+                if date_el:
+                    date_txt = date_el.get_text(separator=' ', strip=True)
 
         items.append({
             "source_url": full_url,
@@ -125,6 +148,7 @@ def registration_date(url: str, html: str) -> str | None:
 
 
 def parse_detail_page(url: str) -> dict | None:
+    url = detail_url(url)
     resp = get(url)
     if not resp:
         return None
@@ -162,6 +186,7 @@ def parse_detail_page(url: str) -> dict | None:
                 meta[key] = val
 
     result["meta"] = meta
+    result['board'] = contestkorea_metadata_board(meta) or result['board']
     published = bs.select_one('meta[property="article:published_time"], meta[itemprop="datePublished"], time[itemprop="datePublished"][datetime], .published time[datetime]')
     result['published_at'] = publication_from_metadata(meta) or (
         iso_publication(published.get('content') or published.get('datetime')) if published else None
@@ -198,15 +223,18 @@ def parse_detail_page(url: str) -> dict | None:
 # ── 페이지 수 탐지 ────────────────────────────────────────────────────────────
 
 def get_total_pages(code: str) -> int:
-    resp = get(LIST_URL.format(code=code, page=1))
+    resp = get(list_url(code, 1))
     if not resp:
         return 1
     bs = soup(resp)
     last = 1
-    for a in bs.select(".paging a, .pagination a, .page_num a"):
+    for a in bs.select(".paging a, .pagination a, .page_num a, .paging button, .pagination button, .page_num button"):
         txt = a.get_text(strip=True)
         if txt.isdigit():
             last = max(last, int(txt))
+        for target in (a.get('href', ''), a.get('onclick', '')):
+            for number in re.findall(r'[?&]page=(\d+)', target):
+                last = max(last, int(number))
     return last
 
 
@@ -252,7 +280,7 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
                         "list_date_raw": item.get("list_date_raw", ""),
                         "category": cat_name,
                         "category_code": code,
-                        "board": contestkorea_board(code) or 'contest',
+                        "board": contestkorea_metadata_board(detail.get('meta')) or contestkorea_board(code) or 'contest',
                     })
                     results.append(detail)
                     existing_urls.add(url)

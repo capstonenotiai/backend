@@ -91,28 +91,26 @@ def test_crawler_activity_wins(monkeypatch):
 
 
 @pytest.mark.parametrize('dry_run', [True, False])
-def test_recategorize_cli_lists_only(db, monkeypatch, capsys, dry_run):
+def test_recategorize_cli_saved_metadata_only(db, monkeypatch, capsys, dry_run):
     from app import cli
     from crawler import contestkorea as ck
     notice = Notice(site='contestkorea', board='contest', title_raw='수정 예시',
                     source_url='http://contestkorea.com/sub/view.php?Txt_bcode=030110001&str_no=1',
-                    source_metadata={'category_code': '030110001', 'keep': 'value'})
+                    source_metadata={'대표분야': '서포터즈 • 기자단', 'category_code': '030110001', 'keep': 'value'})
     db.add(notice)
     db.flush()
     event = make_event(db, notice, category='contest')
-    codes = []
-    monkeypatch.setattr(ck, 'get_total_pages', lambda code: codes.append(code) or 1)
-    monkeypatch.setattr(ck, 'parse_list_page', lambda page, code: [{'source_url': 'http://contestkorea.com/sub/view.php?str_no=1'}])
+    monkeypatch.setattr(ck, 'activity_list_codes', lambda: pytest.fail('목록 순회 금지'))
+    monkeypatch.setattr(ck, 'get', lambda url: pytest.fail('네트워크 금지'))
     monkeypatch.setattr(ck, 'parse_detail_page', lambda url: pytest.fail('상세 조회 금지'))
     monkeypatch.setattr(cli, 'SessionLocal', lambda: db)
     monkeypatch.setattr(cli, 'init_db', lambda: pytest.fail('스키마 변경 금지'))
     monkeypatch.setattr('sys.argv', ['app.cli', 'recategorize-contestkorea'] + (['--dry-run'] if dry_run else []))
     cli.main()
-    assert codes and all(code.startswith('04') for code in codes)
     assert '변경 공지 1건' in capsys.readouterr().out
     db.expire_all()
     assert event.category == notice.board == ('contest' if dry_run else 'activity')
-    assert notice.source_metadata == {'category_code': '030110001' if dry_run else '040110001', 'keep': 'value'}
+    assert notice.source_metadata == {'대표분야': '서포터즈 • 기자단', 'category_code': '030110001', 'keep': 'value'}
 
 
 @pytest.mark.parametrize('kind,start,end_time,start_time', [

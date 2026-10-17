@@ -10,7 +10,7 @@
   python -m app.cli enrich [--limit N] [--requeue-failed]  공개 일정이 있는 공지 보강
   python -m app.cli usage [--days 7]             OpenAI 호출 수·토큰 합계 (날짜·종류·모델별)
   python -m app.cli recategorize [--dry-run]      저장된 사이트 분류 근거로 Event.category 재분류
-  python -m app.cli recategorize-contestkorea [--dry-run]  04 목록 근거로 저장 공지·일정을 대외활동으로 수정
+  python -m app.cli recategorize-contestkorea [--dry-run]  저장된 대표분야로 공지·일정 분류 보정
   python -m app.cli planner --email <사용자> --mode priority|discover|focus [--call-gpt]
                                                  플래너 입력(payload) 확인, --call-gpt 면 실제 추천 결과까지 (B 검증용)
 """
@@ -80,8 +80,14 @@ def main() -> None:
             result = recategorize_contestkorea(db, args.dry_run)
             print('재분류 dry-run (저장 안 함)' if args.dry_run else '재분류 반영 완료')
             print(f"변경 공지 {result['changed']}건")
+            for label, key in (('board', 'changes'), ('Event.category', 'event_changes')):
+                for (old, new), count in sorted(result[key].items(), key=lambda item: str(item[0])):
+                    print(f'{label}: {old}→{new} {count}건')
+            print(f"판단 불가 공지 {result['skipped']}건")
             for title in result['examples']:
-                print(title)
+                print(f'변경 예시: {title}')
+            for title in result['unknown_examples']:
+                print(f'판단 불가 예시: {title}')
         elif args.command == 'recategorize':
             from app.services.category import recategorize
             result = recategorize(db, args.dry_run)

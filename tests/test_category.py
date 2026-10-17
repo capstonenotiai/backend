@@ -56,12 +56,12 @@ def test_wevity_missing_field_defaults_for_new_notice_only(monkeypatch):
 
 
 @pytest.mark.parametrize('board,meta,url,expected', [
-    ('activity', {'category_code':'030110001'}, '', 'activity'),
-    (None, {'category_code':'040110001'}, '', 'activity'),
-    (None, {'category':'교육·멘토링'}, '', 'activity'),
-    (None, {'category':'문학·문예'}, '', 'contest'),
-    (None, {'접수기간':'2030-01-01'}, 'https://contestkorea.com/sub/view.php?Txt_bcode=040610001', 'activity'),
-    (None, {'접수기간':'2030-01-01'}, 'https://contestkorea.com/sub/view.php?Txt_bcode=030110001', 'contest'),
+    ('activity', {'category_code':'030110001'}, '', None),
+    (None, {'category_code':'040110001'}, '', None),
+    (None, {'category':'교육·멘토링'}, '', None),
+    (None, {'category':'문학·문예'}, '', None),
+    (None, {'접수기간':'2030-01-01'}, 'https://contestkorea.com/sub/view.php?Txt_bcode=040610001', None),
+    (None, {'접수기간':'2030-01-01'}, 'https://contestkorea.com/sub/view.php?Txt_bcode=030110001', None),
     (None, {'category':'미확인'}, '', None),
     (None, {}, 'https://contestkorea.com/sub/view.php?Txt_bcode=040610001', None),
 ])
@@ -114,8 +114,8 @@ def category_dataset(db):
         ('wevity', None, {'분야':'대외활동/서포터즈, 영상/UCC/사진'}, 'activity', '', 1),
         ('wevity', 'activity', {}, 'contest', '', 1),
         ('wevity', None, {'주최':'기관'}, 'academic', '', 1),
-        ('contestkorea', None, {'접수기간':'2030-01-01'}, 'contest', '?Txt_bcode=040610001', 1),
-        ('contestkorea', None, {'category_code':'030110001'}, None, '', 1),
+        ('contestkorea', 'contest', {'대표분야':'기타 대외활동'}, 'contest', '?Txt_bcode=030110001', 1),
+        ('contestkorea', 'activity', {'대표분야':'문학·문예', 'category_code':'040110001'}, None, '', 1),
         ('contestkorea', None, {}, 'contest', '?Txt_bcode=040610001', 1),
         ('cbnu', 'employment', {}, 'academic', '', 1),
     ]
