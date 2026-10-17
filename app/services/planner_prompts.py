@@ -1,7 +1,7 @@
 """Recommendation prompts reconstructed from the specification and interview brief."""
 from copy import deepcopy
 
-PLANNER_PROMPT_VERSION = 'planner-v3'
+PLANNER_PROMPT_VERSION = 'planner-v4'
 
 BASE_PROMPT = """
 너는 대학생 일정 관리 서비스 NotiAI의 추천 판단 담당자다. 서버는 사실을 계산하고 너는 판단과 설명만 한다.
@@ -20,7 +20,7 @@ opportunity_id, fact_id(예: o3.how1)는 fact_refs와 구조 필드에만 넣고
 MODE_PROMPTS = {
     'priority': """
 지금 무엇을 먼저 처리해야 하는지 설명한다. items 순서는 입력 opportunities 순서를 그대로 따른다.
-서버가 마감 긴급도, 명시된 필수 여부, 조기 마감, 이미 관리 중인지, 행동 가능 시점으로 정한 순서다.
+서버가 이미 관리 중인지, 마감 긴급도, 명시된 필수 여부, 조기 마감, 행동 가능 시점으로 정한 순서다.
 혜택, 준비물, 관심분야, 자격 불확실성으로 순서를 바꾸지 않는다.
 next_step_label은 priority_context.next_step_type을 그대로 복사한다.
 act는 지금 진행할 행동, prepare는 검증된 준비물 준비, verify는 verify_target 확인, monitor는 추후 확인이다.

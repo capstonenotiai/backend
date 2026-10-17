@@ -10,6 +10,10 @@ from sqlalchemy import select, update
 from app.models import Event, Notice, ReviewLog, UserEvent
 from app.services.category import categorize
 from app.services.display_rules import service_excluded
+from app.timeutil import to_local
+
+MAX_NOTICE_DATE_GAP_DAYS = 300
+MAX_APPLICATION_PERIOD_DAYS = 120
 
 EDIT_FIELDS = ('title','start_date','end_date','start_time','end_time','timezone',
                'location','detail','event_type','attendance_mode','schedule_status')
@@ -75,6 +79,18 @@ def confirmation_reason(event):
     generic = '일정 상태를 원문에서 확인해 주세요.'
     explicit = (getattr(event, 'extraction_metadata', None) or {}).get('review_reason')
     reasons = [part for part in (event.review_reason or '').split(' / ') if part and (part != generic or explicit == generic)]
+    notice = getattr(event, 'notice', None)
+    published = getattr(notice, 'published_at', None)
+    collected = getattr(notice, 'crawled_at', None) or getattr(event, 'collected_at', None)
+    reference = date.fromisoformat(published) if published else to_local(collected).date() if collected else None
+    days = [date.fromisoformat(value) for value in (event.start_date, event.end_date) if value]
+    if reference and any((day - reference).days > MAX_NOTICE_DATE_GAP_DAYS for day in days):
+        reasons.append('공지 게시일보다 일정이 많이 늦어요. 원문에서 날짜를 확인해 주세요.')
+    if (event.event_type == 'application' and event.start_date and event.end_date
+            and (date.fromisoformat(event.end_date) - date.fromisoformat(event.start_date)).days > MAX_APPLICATION_PERIOD_DAYS):
+        reasons.append('접수 기간이 길어요. 원문에서 접수 기간을 확인해 주세요.')
+    if event.event_type in ('application', 'submission') and not event.end_date:
+        reasons.append('접수·제출 마감일이 없어요. 원문에서 마감일을 확인해 주세요.')
     return ' / '.join(reasons) or None
 
 

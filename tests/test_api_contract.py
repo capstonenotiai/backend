@@ -102,6 +102,15 @@ def test_frontend_response_keys(client, db, monkeypatch):
         shapes['recommendation item ' + mode] = sorted(body['items'][0])
         assert all(sorted(item) == shapes['recommendation item ' + mode] for item in body['items'])
         shapes['priority_context ' + mode] = sorted(body['items'][0]['priority_context'])
+    grouped = make_notice(db)
+    make_event(db, grouped, category='academic')
+    db.add(NoticeEnrichment(notice_id=grouped.id, state='done', prompt_version='enrich-v1',
+                           facts=empty_enrichment('ok'), grouping_review_required=True,
+                           grouping_review_reason='공지 안의 활동 구성을 확인해 주세요.'))
+    db.commit()
+    body = call('POST', '/api/planner/recommendations', json={'mode': 'focus'})
+    shapes['needs_grouping_check item'] = sorted(body['needs_grouping_check'][0])
+    assert body['needs_grouping_check'][0]['reason'] == '공지 안의 활동 구성을 확인해 주세요.'
     feedback = client.post('/api/feedback', json={'type': 'other', 'message': '서비스 의견'})
     assert feedback.status_code == 201
     keys('POST /api/feedback', feedback.json())

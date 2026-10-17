@@ -199,7 +199,7 @@ def test_priority_sort_all_levels_and_irrelevant_fields():
     items[8]['category'] = '관심 없음'
     requirement(items[8], value='애매')
     selected, _ = planner.select_candidates(list(reversed(items)), PROFILE, 'priority')
-    assert [item['opportunity_id'] for item in selected] == ['o2', 'o3', 'o4', 'o7', 'o8', 'o9', 'o5', 'o6', 'o1']
+    assert [item['opportunity_id'] for item in selected] == ['o4', 'o2', 'o3', 'o7', 'o8', 'o5', 'o6', 'o1']
 
 
 @pytest.mark.parametrize('mode', ['priority', 'discover', 'focus'])
@@ -217,7 +217,7 @@ def test_candidate_filters(mode):
     items[8]['category'] = '학사'
     add_fact(items[8], 'related_interest', 'career')
     selected, grouping = planner.select_candidates(items, PROFILE, mode)
-    expected = {'priority': {'o1', 'o6', 'o7', 'o8', 'o9'},
+    expected = {'priority': {'o1', 'o6', 'o8', 'o9'},
                 'discover': {'o1', 'o7', 'o8', 'o9'}, 'focus': {'o1', 'o9'}}
     assert {item['opportunity_id'] for item in selected} == expected[mode]
     assert [item['opportunity_id'] for item in grouping] == (['o8'] if mode == 'focus' else [])
@@ -286,7 +286,7 @@ def test_payload_real_facts_enrichment_conflicts_and_grouping(db):
     assert [item['opportunity_id'] for item in result['opportunities']] == ids[:2]
     assert result['pairwise_conflicts'] == [ids[:2]]
     assert result['opportunities'][1]['calendar_conflict'] is True
-    assert result['needs_grouping_check'] == [{'opportunity_id': ids[2], 'title': '활동'}]
+    assert result['needs_grouping_check'] == [{'opportunity_id': ids[2], 'title': '활동', 'reason': ''}]
 
 
 def test_api_validation_current_user_visibility_and_authentication(client, db, monkeypatch):
@@ -386,7 +386,7 @@ def test_focus_conflicts_only_selected_candidates_and_grouping_not_capped(db, mo
     assert len(selected_ids) == 12
     assert len(result['pairwise_conflicts']) == 66
     assert all(set(pair) <= selected_ids for pair in result['pairwise_conflicts'])
-    assert result['needs_grouping_check'] == [{'opportunity_id': 'o19', 'title': 'career 진로 공지'}]
+    assert result['needs_grouping_check'] == [{'opportunity_id': 'o19', 'title': 'career 진로 공지', 'reason': ''}]
 
 
 def test_preferred_conditions_do_not_make_eligibility_uncertain():

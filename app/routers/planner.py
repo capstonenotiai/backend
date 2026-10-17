@@ -54,7 +54,7 @@ async def chat(request: Request, user: User = Depends(get_current_user), db: Ses
         message, mode, history = planner.parse_chat_request(body)
         pref = preferences.get_or_create_preference(db, user)
         events = list_events(db, user, pref.enabled_sources)
-        instructions = planner.build_instructions(mode, planner.build_events_context(events, today_local()))
+        instructions = planner.build_instructions(mode, planner.build_events_context(events, today_local(), pref.interests))
         # OpenAI 호출은 동기 SDK → 이벤트 루프를 막지 않도록 스레드에서 실행
         reply = await run_in_threadpool(
             planner.create_reply, instructions, [*history, {"role": "user", "content": message}]

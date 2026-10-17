@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, func, inspect, select, text
 
 from app.db import BACKEND_ROOT, run_migrations
 from app.deps import get_or_create_dev_user
+from app.services.preferences import get_or_create_preference
 from app.models import (CrawlRun, Event, EventReport, Notification, Preference, ReviewLog,
                         ServiceFeedback, User, UserEvent, UserNotice)
 from app.services import google, planner, planner_recommendations as recommendations
@@ -198,6 +199,7 @@ def test_google_revoke_uses_form_post(monkeypatch, status):
 
 
 def test_recommendations_refresh_replaces_cache_and_limits_user_mode(client, db, monkeypatch):
+    get_or_create_preference(db, get_or_create_dev_user(db)).interests = ['학사']
     monkeypatch.setattr('app.routers.planner.now_local', lambda: NOW)
     notice = make_notice(db); make_event(db, notice); db.commit()
     clock = [100.0]
@@ -227,6 +229,7 @@ def test_recommendations_refresh_replaces_cache_and_limits_user_mode(client, db,
 
 @pytest.mark.parametrize('refresh', [False, None, 1, 'true', [], {}])
 def test_non_boolean_refresh_uses_cache(client, db, monkeypatch, refresh):
+    get_or_create_preference(db, get_or_create_dev_user(db)).interests = ['학사']
     monkeypatch.setattr('app.routers.planner.now_local', lambda: NOW)
     notice = make_notice(db); make_event(db, notice); db.commit()
     calls = []

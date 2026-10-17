@@ -21,6 +21,7 @@ LIMITS = {
     "history_content_chars": 2000,
 }
 CONTEXT_EVENT_LIMIT = 20
+CONTEXT_MANAGED_LIMIT = 60
 
 # ── 채팅용 프롬프트 ─────────────────────────────────────────────────────
 BASE_PROMPT = """
@@ -104,11 +105,15 @@ def _dday(end: str, today: date) -> str:
     return "D-DAY" if days == 0 else f"D-{days}"
 
 
-def build_events_context(events: list[EventOut], today: date) -> str:
+def build_events_context(events: list[EventOut], today: date, interests=None) -> str:
     upcoming = sorted(
-        (event for event in events if event.end_date and event.end_date >= today.isoformat()),
+        (event for event in events if not event.dismissed and event.end_date and event.end_date >= today.isoformat()),
         key=lambda event: event.end_date,
-    )[:CONTEXT_EVENT_LIMIT]
+    )
+    managed = [event for event in upcoming if event.registered or event.bookmarked][:CONTEXT_MANAGED_LIMIT]
+    others = sorted((event for event in upcoming if not (event.registered or event.bookmarked)),
+                    key=lambda event: (event.category not in (interests or []), event.end_date))
+    upcoming = managed + others[:CONTEXT_EVENT_LIMIT]
     if not upcoming:
         return f"[사용자의 NotiAI 일정 목록 (오늘: {today.isoformat()})]\n- 마감 전인 일정이 없다."
 
@@ -122,6 +127,7 @@ def build_events_context(events: list[EventOut], today: date) -> str:
             event.location or "장소 없음",
             SOURCE_LABELS.get(event.source, event.source),
             "캘린더 등록됨" if event.registered else "캘린더 미등록",
+            "관심 저장됨" if event.bookmarked else "관심 저장 안 됨",
         ]
         if event.review_status == "needs_review":
             parts.append("날짜 검토 필요")
@@ -130,7 +136,7 @@ def build_events_context(events: list[EventOut], today: date) -> str:
         lines.append("- " + " | ".join(parts))
 
     return (
-        f"[사용자의 NotiAI 일정 목록 (오늘: {today.isoformat()}, 마감 임박순 최대 {CONTEXT_EVENT_LIMIT}건)]\n"
+        f"[사용자의 NotiAI 일정 목록 (오늘: {today.isoformat()}, 등록·관심 일정 최대 {CONTEXT_MANAGED_LIMIT}건 + 관심분야 우선 마감 임박 최대 {CONTEXT_EVENT_LIMIT}건)]\n"
         + "\n".join(lines)
         + "\n\n일정 관련 질문은 위 목록만 근거로 답하고, 목록에 없는 일정은 모른다고 말한다."
     )

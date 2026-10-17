@@ -72,7 +72,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert set(output['items'][0]) == set(schema['properties']['items']['items']['properties'])
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v3'
+    assert PLANNER_PROMPT_VERSION == 'planner-v4'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 
@@ -257,7 +257,7 @@ def test_focus_grouping_only_keeps_check_list(client, db, monkeypatch):
     monkeypatch.setattr(planner_context, 'all_opportunity_facts', lambda *args: [grouped])
     monkeypatch.setattr(service, 'create_judgment', lambda payload: pytest.fail('No GPT candidates'))
     result = client.post('/api/planner/recommendations', json={'mode': 'focus'}).json()
-    assert result['items'] == [] and result['needs_grouping_check'] == [{'opportunity_id': 'o1', 'title': grouped['title']}]
+    assert result['items'] == [] and result['needs_grouping_check'] == [{'opportunity_id': 'o1', 'title': grouped['title'], 'reason': ''}]
 
 
 @pytest.mark.parametrize('body', [{'mode': 'study'}, {'mode': None}, {'mode': []}, {}, [], 'bad'])
@@ -267,6 +267,7 @@ def test_api_invalid_modes_400(client, body):
 
 
 def test_api_invalid_json_size_missing_key_and_auth(client, db, monkeypatch):
+    get_or_create_preference(db, get_or_create_dev_user(db)).interests = ['학사']
     assert client.post('/api/planner/recommendations', content=b'bad').status_code == 400
     assert client.post('/api/planner/recommendations', content=b'x' * (65 * 1024)).status_code == 413
     notice = make_notice(db)
@@ -306,6 +307,7 @@ def test_cache_reuse_expiration_isolation_invalidation_and_copies(monkeypatch):
 
 
 def test_gpt_errors_not_cached_and_api_message(client, db, monkeypatch):
+    get_or_create_preference(db, get_or_create_dev_user(db)).interests = ['학사']
     notice = make_notice(db)
     make_event(db, notice)
     db.commit()

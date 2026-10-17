@@ -233,8 +233,12 @@ def enrich_pending(db, client=None, limit=None, now=None):
     now = as_aware(now or utcnow())
     # 비용: 이미 끝난 공지는 추천 대상이 아니므로 보강하지 않는다 (기존 DB의 오래된 공지 전체 호출 방지)
     today = now.astimezone(settings.tz).date().isoformat()
-    public_ids = {event.notice_id for event in _public_events(db)
-                  if max(event.end_date or '', event.start_date or '') >= today}
+    action_dates = {}
+    for event in _public_events(db):
+        day = event.end_date or event.start_date or ''
+        if day >= today:
+            action_dates[event.notice_id] = min(action_dates.get(event.notice_id, day), day)
+    public_ids = set(action_dates)
     if not public_ids:
         return 0
     states = ('pending', 'retry_pending')
@@ -243,9 +247,9 @@ def enrich_pending(db, client=None, limit=None, now=None):
         (NoticeEnrichment.prompt_version != ENRICHMENT_PROMPT_VERSION) & (NoticeEnrichment.state != 'processing'),
         (NoticeEnrichment.state.in_(states)) & (NoticeEnrichment.attempts < ENRICHMENT_MAX_ATTEMPTS)
         & or_(NoticeEnrichment.next_attempt_at.is_(None), NoticeEnrichment.next_attempt_at <= now))).order_by(Notice.id)
+    rows = sorted(db.execute(query).all(), key=lambda row: (action_dates[row[0].id], row[0].id))
     if limit is not None:
-        query = query.limit(limit)
-    rows = db.execute(query).all()
+        rows = rows[:limit]
     if not rows:
         return 0
     if client is None:

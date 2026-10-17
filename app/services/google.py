@@ -148,9 +148,10 @@ def build_calendar_body(event: Event) -> dict:
         body["location"] = event.location
     start_time=getattr(event,'start_time','') or ''
     end_time=getattr(event,'end_time','') or ''
-    # A timed application deadline is a marker on its final day, not a guessed period start time.
     if getattr(event, 'event_type', '') in ('application', 'submission') and end_time and not start_time:
-        start = end
+        body['summary'] += f' (마감 {end_time})'
+        body['description'] = f'접수 마감: {event.end_date} {end_time}\n' + description
+        return body
     timezone=getattr(event,'timezone','') or 'Asia/Seoul'
     zone=ZoneInfo(timezone)
     if start_time or end_time:

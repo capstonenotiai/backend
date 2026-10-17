@@ -6,7 +6,7 @@ from app.services.review import confirmation_reason
 
 
 def bundle(db, reason=None):
-    notice = Notice(site='cbnu', source_url='https://example.com/b7b', title_raw='B7b 확인')
+    notice = Notice(site='cbnu', source_url='https://example.com/b7b', title_raw='B7b 확인', published_at='2030-10-01')
     db.add(notice); db.flush()
     events = []
     for kind in ('application', 'event', 'interview'):

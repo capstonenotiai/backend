@@ -245,6 +245,11 @@
     "next_step_type",
     "verify_target"
   ],
+  "needs_grouping_check item": [
+    "opportunity_id",
+    "reason",
+    "title"
+  ],
   "POST /api/feedback": [
     "created_at",
     "id"

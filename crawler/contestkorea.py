@@ -39,6 +39,27 @@ CATEGORIES = {
 SITE = "contestkorea"
 
 
+def post_id(url):
+    return parse_qs(urlparse(url).query).get('str_no', [None])[0]
+
+
+def activity_list_codes():
+    """Read only activity lists; base.get enforces at least 1.5 seconds per request."""
+    codes = {}
+    for code in CATEGORIES.values():
+        if not code.startswith('04'):
+            continue
+        for page in range(1, get_total_pages(code) + 1):
+            items = parse_list_page(page, code)
+            if not items:
+                break
+            for item in items:
+                number = post_id(item['source_url'])
+                if number:
+                    codes.setdefault(number, code)
+    return codes
+
+
 # ── 목록 페이지 파싱 ──────────────────────────────────────────────────────────
 
 _DDAY_PAT = re.compile(r"^D[+\-]\d+$")
@@ -196,9 +217,8 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
     existing_urls = existing_urls or set()
     categories = categories or list(CATEGORIES.values())
     results = []
-    # Txt_bcode가 달라도 str_no가 같으면 같은 글이다. 처음 수집된 분류를 유지한다.
-    def post_id(url):
-        return parse_qs(urlparse(url).query).get('str_no', [None])[0]
+    # 같은 글은 대외활동 목록을 먼저 수집한다.
+    categories = sorted(categories, key=lambda code: not code.startswith('04'))
 
     known_ids = {post_id(url) for url in existing_urls if 'contestkorea.com' in urlparse(url).netloc}
     known_ids.discard(None)
@@ -246,7 +266,7 @@ def crawl(max_pages: int = 999, existing_urls: set = None,
                 print(f"  [종료] 기존 데이터와 전부 중복")
                 break
 
-    print(f"[ContestKorea] 수집 완료: {len(results)}건, 목록 간 중복 글 {len(cross_category_ids)}건 (먼저 수집한 분류 유지)")
+    print(f"[ContestKorea] 수집 완료: {len(results)}건, 목록 간 중복 글 {len(cross_category_ids)}건 (대외활동 분류 우선)")
     return results
 
 

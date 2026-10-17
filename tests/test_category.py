@@ -70,7 +70,7 @@ def test_existing_contestkorea_metadata_and_url(board, meta, url, expected):
 
 
 @pytest.mark.parametrize('codes', [('030110001', '040110001'), ('040110001', '030110001')])
-def test_contestkorea_cross_category_duplicate_keeps_first(monkeypatch, capsys, codes):
+def test_contestkorea_cross_category_duplicate_prefers_activity(monkeypatch, capsys, codes):
     calls = []
     monkeypatch.setattr(contestkorea, 'get_total_pages', lambda code: 1)
     monkeypatch.setattr(contestkorea, 'parse_list_page', lambda page, code: [
@@ -79,8 +79,8 @@ def test_contestkorea_cross_category_duplicate_keeps_first(monkeypatch, capsys, 
     monkeypatch.setattr(contestkorea, 'parse_detail_page', lambda url: calls.append(url) or {'meta': {'접수기간':'2030-01-01'}})
     result = contestkorea.crawl(max_pages=1, categories=list(codes))
     assert len(result) == len(calls) == 1
-    assert result[0]['board'] == contestkorea_board(codes[0])
-    assert result[0]['category_code'] == codes[0]
+    assert result[0]['board'] == 'activity'
+    assert result[0]['category_code'] == '040110001'
     assert '목록 간 중복 글 1건' in capsys.readouterr().out
 
 

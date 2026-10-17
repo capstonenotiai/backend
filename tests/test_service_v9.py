@@ -228,7 +228,9 @@ def test_interview_exclusion_user_override_google_and_isolation(client, db, monk
     assert r.status_code==200, r.text
     states=list(db.scalars(select(UserEvent).where(UserEvent.user_id==user.id,UserEvent.event_id.in_([e.id for e in events]))))
     assert {s.event_id for s in states if s.registered} == {events[0].id,events[1].id}
-    assert bodies[0]['start']['dateTime'].startswith('2030-10-21T17:00')
+    assert bodies[0]['start'] == {'date': '2030-10-01'}
+    assert bodies[0]['end'] == {'date': '2030-10-22'}
+    assert bodies[0]['summary'].endswith(' (마감 17:00)')
     assert bodies[0]['location']=='내 장소'
     assert db.get(Event,events[0].id).end_date=='2030-10-23'
     assert client.post('/api/calendar/register',json={'event_id':events[2].id,'confirmed':True}).status_code==400

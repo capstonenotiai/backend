@@ -10,6 +10,7 @@
   python -m app.cli enrich [--limit N] [--requeue-failed]  공개 일정이 있는 공지 보강
   python -m app.cli usage [--days 7]             OpenAI 호출 수·토큰 합계 (날짜·종류·모델별)
   python -m app.cli recategorize [--dry-run]      저장된 사이트 분류 근거로 Event.category 재분류
+  python -m app.cli recategorize-contestkorea [--dry-run]  04 목록 근거로 저장 공지·일정을 대외활동으로 수정
   python -m app.cli planner --email <사용자> --mode priority|discover|focus [--call-gpt]
                                                  플래너 입력(payload) 확인, --call-gpt 면 실제 추천 결과까지 (B 검증용)
 """
@@ -63,15 +64,24 @@ def main() -> None:
     p_collect.add_argument("--site", choices=["cbnu", "wevity", "contestkorea"])
     p_recategorize = sub.add_parser('recategorize')
     p_recategorize.add_argument('--dry-run', action='store_true')
+    p_ck = sub.add_parser('recategorize-contestkorea')
+    p_ck.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
 
     # dry-run을 포함한 재분류는 스키마 초기화/마이그레이션을 실행하지 않는다.
-    if args.command != 'recategorize':
+    if args.command not in ('recategorize', 'recategorize-contestkorea'):
         init_db()
     db = SessionLocal()
     try:
         if args.command == "init-db":
             print("테이블 생성 완료")
+        elif args.command == 'recategorize-contestkorea':
+            from app.services.contestkorea import recategorize_contestkorea
+            result = recategorize_contestkorea(db, args.dry_run)
+            print('재분류 dry-run (저장 안 함)' if args.dry_run else '재분류 반영 완료')
+            print(f"변경 공지 {result['changed']}건")
+            for title in result['examples']:
+                print(title)
         elif args.command == 'recategorize':
             from app.services.category import recategorize
             result = recategorize(db, args.dry_run)

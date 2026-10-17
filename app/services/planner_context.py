@@ -163,9 +163,9 @@ def priority_context(opportunity):
 def priority_sort_key(opportunity):
     focus = focus_event(opportunity)
     day = (focus['action_date'] or '9999-12-31') if focus else '9999-12-31'
-    return (URGENCY_ORDER[focus['urgency']] if focus else 4,
+    return (not opportunity['user_managed'], URGENCY_ORDER[focus['urgency']] if focus else 4,
             not opportunity['enrichment']['is_mandatory'], not _early_close(opportunity, focus),
-            not opportunity['user_managed'], WINDOW_ORDER[focus['action_window']] if focus else 2,
+            WINDOW_ORDER[focus['action_window']] if focus else 2,
             day,
             _id_number(opportunity['opportunity_id']))
 
@@ -194,10 +194,13 @@ def select_candidates(opportunities, profile, mode):
     grouping = []
     if mode == 'priority':
         candidates = [item for item in prepared if not item['dismissed']
-                      and item['eligibility'] != 'ineligible' and focus_event(item)]
+                      and item['eligibility'] != 'ineligible' and focus_event(item)
+                      and (item['user_managed'] or item['interest_match']['direct'] or item['interest_match']['related'])]
         candidates.sort(key=priority_sort_key)
     else:
-        candidates = sorted((item for item in prepared if _discover_candidate(item)), key=_deadline_key)
+        candidates = sorted((item for item in prepared if _discover_candidate(item)),
+                            key=lambda item: (not (item['interest_match']['direct'] or item['interest_match']['related']),
+                                              item['enrichment']['enrichment_status'] == 'missing', _deadline_key(item)))
         if mode == 'focus':
             candidates = [item for item in candidates if item['interest_match']['direct'] or item['interest_match']['related']]
             grouping = [item for item in candidates if item['enrichment']['grouping_review_required']]
@@ -265,7 +268,8 @@ def _build_context(db, user, mode, now=None):
         result['user'] = profile
     elif mode == 'focus':
         result.update(user={'interests': profile['interests']}, pairwise_conflicts=pairwise_conflicts(candidates),
-                      needs_grouping_check=[{'opportunity_id': item['opportunity_id'], 'title': item['title']}
+                      needs_grouping_check=[{'opportunity_id': item['opportunity_id'], 'title': item['title'],
+                                             'reason': item['enrichment']['grouping_review_reason']}
                                             for item in grouping])
     return result, candidates, now
 
