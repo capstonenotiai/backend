@@ -23,9 +23,9 @@ from app.config import get_settings
 from app.models import CrawlRun, Event, Notice, utcnow
 from app.schemas import SOURCE_IDS
 from app.services.category import categorize
-from app.services.application_end import fill_event_end, correct_event_end
+from app.services.application_end import fill_event_end, correct_event_end, deadline_mismatch_reason
 from app.services.extractor import ExtractionResult, Extractor, ModelUnavailable, RetryableExtraction, get_extractor
-from app.services.notice_metadata import iso_publication, publication_from_metadata, application_deadline
+from app.services.notice_metadata import iso_publication, publication_from_metadata, application_deadline, title_deadline
 from app.timeutil import to_local
 
 log = logging.getLogger(__name__)
@@ -53,6 +53,11 @@ def import_records(db: Session, records: Iterable[dict]) -> Counter:
         published_at = iso_publication(record.get('published_at')) or publication_from_metadata(meta)
         if not published_at and site == 'cbnu':
             published_at = iso_publication(record.get('list_date_raw'))
+        application_end = application_deadline(meta)
+        if not application_end:
+            application_end = title_deadline(record.get('title_raw'), published_at)
+            if application_end:
+                meta['application_end_source'] = 'title'
         db.add(
             Notice(
                 site=site,
@@ -61,7 +66,7 @@ def import_records(db: Session, records: Iterable[dict]) -> Counter:
                 title_raw=(record.get("title_raw") or "").strip(),
                 raw_text=record.get("raw_text") or "",
                 published_at=published_at, source_metadata=meta,
-                application_end_date=application_deadline(meta),
+                application_end_date=application_end,
             )
         )
         added[site] += 1
@@ -137,14 +142,15 @@ def extract_pending(db: Session, extractor: Extractor | None = None, limit: int 
             if not isinstance(result,ExtractionResult):
                 result=ExtractionResult([result],{'legacy_prediction':asdict(result)})
             notice.extraction_result=result.raw
+            source = (notice.source_metadata or {}).get('application_end_source', 'site')
             for extracted in result.events:
-                fill_event_end(extracted, notice.application_end_date)
+                fill_event_end(extracted, notice.application_end_date, source=source)
                 if extractor.name == 'model_api':
                     extracted.review_status = 'auto'
-                    correct_event_end(extracted, notice.application_end_date)
+                    correct_event_end(extracted, notice.application_end_date, source=source)
                     if (extracted.event_type in ('application', 'submission') and notice.application_end_date
                             and extracted.end_date != notice.application_end_date):
-                        reason = '사이트 접수 마감일과 AI 마감일이 다릅니다. 원문 확인이 필요합니다.'
+                        reason = deadline_mismatch_reason(source)
                         extracted.review_reason = ' / '.join(filter(None, [extracted.review_reason, reason]))
                 db.add(Event(notice_id=notice.id,source=notice.site,source_url=notice.source_url,
                     **asdict(extracted),category=categorize(notice.site,notice.board),

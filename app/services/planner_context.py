@@ -233,7 +233,7 @@ def select_candidates(opportunities, profile, mode, now=None):
                  'interest_match': interest_match(item, profile['interests']),
                  'priority_context': priority_context(item),
                  'requirement_comparisons': requirement_comparisons(item, profile)} for item in opportunities]
-    prepared = [item for item in prepared if item['user_managed']
+    prepared = [item for item in prepared if item.get('user_registered', False)
                 or not item.get('application_end_date')
                 or item['application_end_date'] >= today.isoformat()]
     grouping = []

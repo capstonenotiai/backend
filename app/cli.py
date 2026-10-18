@@ -10,6 +10,7 @@
   python -m app.cli enrich [--limit N] [--requeue-failed]  공개 일정이 있는 공지 보강
   python -m app.cli usage [--days 7]             OpenAI 호출 수·토큰 합계 (날짜·종류·모델별)
   python -m app.cli inspect-extraction <notice_id>...  모델 원출력·저장 일정 날짜/시각 비교
+  python -m app.cli fill-title-deadline [--dry-run]    제목의 접수 마감일 보완
   python -m app.cli fill-application-end [--dry-run]   빈 접수 마감일을 사이트 정보로 보완
   python -m app.cli fix-application-end-offset [--dry-run]  사이트보다 하루 늦은 접수 마감일 보정
   python -m app.cli recategorize [--dry-run]      저장된 사이트 분류 근거로 Event.category 재분류
@@ -102,6 +103,8 @@ def main() -> None:
     sub.add_parser("seed")
     p_inspect = sub.add_parser('inspect-extraction', help='추출 원출력과 저장 일정의 날짜·시각만 비교')
     p_inspect.add_argument('notice_ids', type=int, nargs='+')
+    p_title = sub.add_parser('fill-title-deadline', help='제목의 접수 마감일 보완')
+    p_title.add_argument('--dry-run', action='store_true')
     p_fill = sub.add_parser('fill-application-end', help='비어 있는 접수 마감일을 사이트 정보로 보완')
     p_fill.add_argument('--dry-run', action='store_true')
     p_fix = sub.add_parser('fix-application-end-offset', help='사이트보다 하루 늦은 접수 마감일 보정')
@@ -130,7 +133,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # 진단·보완·재분류 명령은 스키마 초기화/마이그레이션을 실행하지 않는다.
-    if args.command not in ('recategorize', 'recategorize-contestkorea', 'inspect-extraction', 'fill-application-end', 'fix-application-end-offset'):
+    if args.command not in ('fill-title-deadline', 'recategorize', 'recategorize-contestkorea', 'inspect-extraction', 'fill-application-end', 'fix-application-end-offset'):
         init_db()
     db = SessionLocal()
     try:
@@ -138,6 +141,12 @@ def main() -> None:
             print("테이블 생성 완료")
         elif args.command == 'inspect-extraction':
             print(inspect_extraction(db, args.notice_ids))
+        elif args.command == 'fill-title-deadline':
+            from app.services.application_end import fill_title_deadlines
+            changes = fill_title_deadlines(db, dry_run=args.dry_run)
+            print(f"제목 마감일 보완 {'dry-run (저장 안 함)' if args.dry_run else '반영'}: {len(changes)}건")
+            for change in changes:
+                print(f"notice_id={change['notice_id']}: {change['title']} -> {change['deadline']}")
         elif args.command == 'fill-application-end':
             from app.services.application_end import fill_application_ends
             count = fill_application_ends(db, dry_run=args.dry_run)

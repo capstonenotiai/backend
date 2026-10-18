@@ -73,6 +73,8 @@ def test_frontend_response_keys(client, db, monkeypatch):
         assert sorted(item) == shapes['event']
     detail = call('GET', f'/api/events/{event.id}')
     internal = call('GET', '/api/internal/planner/opportunities')
+    keys('internal opportunity', next(item for item in internal
+                                     if item['opportunity_id'] == f'o{notice.id}'))
     keys('internal opportunity enrichment', next(item['enrichment'] for item in internal
                                                if item['opportunity_id'] == f'o{notice.id}'))
     keys('detail', detail)

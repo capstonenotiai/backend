@@ -123,6 +123,7 @@ def test_site_deadline_boundary_and_managed(mode):
         item['application_end_date'] = '2030-10-07'
     items[1]['application_end_date'] = '2030-10-08'
     items[2]['user_managed'] = True
+    items[2]['user_registered'] = True
     selected, _ = planner.select_candidates(items, PROFILE, mode, NOW)
     assert {i['opportunity_id'] for i in selected} == {'o2', 'o3'}
 
@@ -156,4 +157,5 @@ def test_incomplete_logs_only_reason(monkeypatch, caplog):
         recommendations.create_judgment(payload_for('focus'))
     assert error.value.status == 502
     assert 'max_output_tokens' in caplog.text and 'PRIVATE_CONTENT' not in caplog.text
-    assert schema_for('focus')['properties']['items']['items']['properties']['reason']['maxLength'] == 120
+    assert all(branch['properties']['reason']['maxLength'] == 120
+               for branch in schema_for('focus')['properties']['items']['items']['anyOf'])

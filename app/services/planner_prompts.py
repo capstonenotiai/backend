@@ -1,7 +1,7 @@
 """Recommendation prompts reconstructed from the specification and interview brief."""
 from copy import deepcopy
 
-PLANNER_PROMPT_VERSION = 'planner-v6'
+PLANNER_PROMPT_VERSION = 'planner-v7'
 
 BASE_PROMPT = """
 너는 대학생 일정 관리 서비스 NotiAI의 추천 판단 담당자다. 서버는 사실을 계산하고 너는 판단과 설명만 한다.
@@ -54,9 +54,14 @@ reason에는 추천 이유, check_reasons에는 공지에서 추가로 확인할
 calendar_conflict=null은 미확인이며 충돌 없음이 아니다. conflicts_with에는 입력 pairwise_conflicts의 상대 ID만 넣는다.
 core의 secondary_reason은 null이다. chosen_over에는 그 core보다 후순위로 판단한 secondary의 ID만 넣는다.
 secondary는 chosen_over를 비운다. 서로를 이긴다고 하거나 secondary가 core를 이기는 관계를 만들지 않는다.
+secondary의 secondary_reason은 반드시 세 사유 중 하나를 고르며 null을 쓰지 않는다.
+schedule_conflict: 실제 pairwise_conflicts에 있는 상대를 conflicts_with에 반드시 넣는다. 충돌이 없으면 쓰지 않는다.
+stronger_alternative: 목적·형태가 비슷한 core가 검증된 관심 연결·자격·혜택 등에서 더 적합한 경우다.
+이 경우 그 core의 chosen_over에 해당 secondary ID를 반드시 넣고 reason에 비교 근거를 쓴다.
+information_uncertain: 자격·보강 정보 등 확인할 정보가 부족해 판단을 보류하는 경우에만 쓴다.
+단순히 후순위라는 이유로 information_uncertain을 고르지 않는다. 확인된 정보가 충분하고 비교할 core도 없다면 core가 될 수 있다.
 secondary에 conflicts_with가 있으면 secondary_reason은 schedule_conflict다.
-stronger_alternative는 실제로 이 후보를 chosen_over로 가진 core가 있을 때만 사용한다.
-그 밖의 불확실한 후순위는 information_uncertain이다. 검증되지 않은 날짜나 충돌을 만들어내지 않는다.
+출력 전 모든 secondary의 사유와 core의 chosen_over 연결을 함께 확인한다. 검증되지 않은 날짜나 충돌을 만들어내지 않는다.
 """.strip(),
 }
 
@@ -88,4 +93,15 @@ def schema_for(mode):
                       chosen_over=_strings(), conflicts_with=_strings())
     else:
         raise ValueError('Unknown planner mode')
-    return deepcopy(_object({'items': {'type': 'array', 'items': _object(fields)}}))
+    item_schema = _object(fields)
+    if mode == 'focus':
+        core = deepcopy(fields)
+        core.update(tier={'type': 'string', 'enum': ['core']}, secondary_reason={'type': 'null'})
+        secondary = deepcopy(fields)
+        secondary.update(tier={'type': 'string', 'enum': ['secondary']},
+                         secondary_reason={'type': 'string', 'enum': [
+                             'stronger_alternative', 'schedule_conflict', 'information_uncertain'],
+                             'description': '필수 사유. stronger_alternative이면 해당 core의 chosen_over에 이 secondary ID가 필요하다.'},
+                         chosen_over={'type': 'array', 'items': {'type': 'string'}, 'maxItems': 0})
+        item_schema = {'anyOf': [_object(core), _object(secondary)]}
+    return deepcopy(_object({'items': {'type': 'array', 'items': item_schema}}))

@@ -66,13 +66,15 @@ def test_valid_outputs_and_strict_schemas(mode):
     output = output_for(payload)
     assert validate_output(payload, output) == (output['items'], [])
     schema = schema_for(mode)
-    for node in (schema, schema['properties']['items']['items']):
+    item_schema = schema['properties']['items']['items']
+    branches = item_schema.get('anyOf', [item_schema])
+    for node in [schema, *branches]:
         assert node['additionalProperties'] is False
         assert set(node['required']) == set(node['properties'])
-    assert set(output['items'][0]) == set(schema['properties']['items']['items']['properties'])
+    assert all(set(output['items'][0]) == set(node['properties']) for node in branches)
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v6'
+    assert PLANNER_PROMPT_VERSION == 'planner-v7'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 

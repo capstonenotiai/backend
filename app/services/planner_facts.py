@@ -144,9 +144,11 @@ def opportunity_context(db, user):
         Event.schedule_status != 'cancelled', Event.review_status != 'rejected')).all()
     managed = set(db.scalars(select(Event.notice_id).join(UserEvent, UserEvent.event_id == Event.id).where(
         UserEvent.user_id == user.id, UserEvent.bookmarked.is_(True) | UserEvent.registered.is_(True))))
+    registered_notices = set(db.scalars(select(Event.notice_id).join(UserEvent).where(
+        UserEvent.user_id == user.id, UserEvent.registered.is_(True))))
     dismissed = set(db.scalars(select(UserNotice.notice_id).where(
         UserNotice.user_id == user.id, UserNotice.dismissed.is_(True))))
-    return {'rows_by_notice': rows_by_notice, 'managed': managed, 'dismissed': dismissed,
+    return {'rows_by_notice': rows_by_notice, 'managed': managed, 'dismissed': dismissed, 'registered_notices': registered_notices,
             'registered': [(event.notice_id, schedule_interval(effective_event(event, state)))
                            for event, state in registered]}
 
@@ -175,6 +177,7 @@ def opportunity_facts(db, user, notice, now=None, context=None):
     return {'opportunity_id': f'o{notice.id}', 'title': notice.title_raw, 'source_url': notice.source_url,
         'category': next((event.category for event, _ in rows if event.category), None),
         'dismissed': notice.id in context['dismissed'], 'user_managed': notice.id in context['managed'],
+        'user_registered': notice.id in context['registered_notices'],
         'application_end_date': notice.application_end_date, 'published_at': notice.published_at,
         'events': events,
         'enrichment': get_enrichment(db, notice.id),

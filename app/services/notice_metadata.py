@@ -44,3 +44,21 @@ def application_deadline(meta):
         if start and end and start <= end:
             return end
     return None
+
+
+def title_deadline(title, published_at):
+    """Only a parenthesized deadline beginning with ~ supplies a title date."""
+    reference = iso_publication(published_at)
+    if not reference or not isinstance(title, str):
+        return None
+    match = re.search(r'\(\s*~\s*(\d{1,2})\s*(?:[/.]\s*(\d{1,2})|월\s*(\d{1,2})\s*일)\s*\)', title)
+    if not match:
+        return None
+    published = date.fromisoformat(reference)
+    month, day = int(match[1]), int(match[2] or match[3])
+    # Choose the year before validating, so next year's leap day remains valid.
+    year = published.year + ((month, day) < (published.month, published.day))
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None

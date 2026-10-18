@@ -32,6 +32,21 @@
     "title",
     "user_modified"
   ],
+  "internal opportunity": [
+    "application_end_date",
+    "application_expired_not_done",
+    "calendar_conflict",
+    "category",
+    "dismissed",
+    "enrichment",
+    "events",
+    "opportunity_id",
+    "published_at",
+    "source_url",
+    "title",
+    "user_managed",
+    "user_registered"
+  ],
   "internal opportunity enrichment": [
     "audience",
     "enrichment_status",
