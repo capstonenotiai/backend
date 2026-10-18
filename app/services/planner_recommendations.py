@@ -68,6 +68,12 @@ def create_judgment(payload):
     except openai.OpenAIError as error:
         log.error('[planner/recommendations] OpenAI request failed: %s', type(error).__name__)
         raise PlannerError('AI 응답 생성에 실패했습니다.', 502) from None
+    if response.status == 'incomplete':
+        details = getattr(response, 'incomplete_details', None)
+        reason = details.get('reason') if isinstance(details, dict) else getattr(details, 'reason', None)
+        # Only SDK reason codes belong in logs, never response content.
+        reason = reason if reason in ('max_output_tokens', 'content_filter') else 'unknown'
+        log.warning('[planner/recommendations] incomplete reason=%s', reason)
     if response.status != 'completed' or not response.output_text:
         raise PlannerError('AI 응답 생성에 실패했습니다.', 502)
     try:

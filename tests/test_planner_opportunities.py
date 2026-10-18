@@ -15,6 +15,7 @@ def make_notice(db):
     notice = Notice(site='cbnu', title_raw='활동', source_url=f'https://example.com/{len(db.new)}-{db.query(Notice).count()}')
     db.add(notice)
     db.flush()
+    notice.title_raw += str(notice.id)
     return notice
 
 

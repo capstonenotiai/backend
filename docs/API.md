@@ -55,7 +55,11 @@ Preferences는 관심분야·출처 키를 위 목록으로 제한하지 않는�
 
 후보 순서는 priority에서 등록·관심 저장 공지(user_managed)를 먼저, 그 안에서 urgency·필수·조기 마감 순으로 정한다. 비관리 공지는 관심분야 direct·related인 경우만 포함한다. discover·focus는 관심분야 direct·related, 보강 누락 여부(missing은 뒤), 행동일 순으로 고른다. 검증된 audience가 excludes_university이면 discover·focus에서 제외한다(grouping_review_required이면 자격은 needs_check). priority는 관리 중 공지를 자격 미충족이어도 유지한다. discover·focus의 비관리 공지는 대표 행동일이 서울 기준 D+2 이상이어야 한다(날짜 없음은 기존 규칙 유지). focus의 관심분야 제한과 일정 구성 확인 목록 분리는 유지한다. 자유 채팅은 등록·관심 일정 최대 60건과 관심분야 우선 마감 임박 일정 최대 20건을 사용하며 숨긴 공지는 제외한다.
 
-내부 opportunities의 enrichment.audience는 open_to_university / excludes_university / unclear 중 하나다. 대상 문구가 원문에서 검증된 경우에만 보강 판정을 사용하며, 근거가 없거나 예전 보강이면 unclear다. 보강 버전은 enrich-v2, 추천 캐시 프롬프트 버전은 planner-v5다. 접수 end_date가 비어 있으면 사이트 마감일로 보완하되 시작일보다 이른 마감일은 사용하지 않는다. 보완된 일정은 기존 review_reason에 "접수 마감일을 사이트 정보로 채웠어요. 원문에서 확인해 주세요."를 제공하며 사용자별 수정 값은 유지한다.
+내부 opportunities의 enrichment.audience는 open_to_university / excludes_university / unclear 중 하나다. 대상 문구가 원문에서 검증된 경우에만 보강 판정을 사용하며, 근거가 없거나 예전 보강이면 unclear다. 보강 버전은 enrich-v3, 추천 캐시 프롬프트 버전은 planner-v6다. 접수 end_date가 비어 있으면 사이트 마감일로 보완하되 시작일보다 이른 마감일은 사용하지 않는다. 보완된 일정은 기존 review_reason에 "접수 마감일을 사이트 정보로 채웠어요. 원문에서 확인해 주세요."를 제공하며 사용자별 수정 값은 유지한다.
+
+B18: 내부 opportunities에 application_end_date(사이트 접수 마감일), published_at(게시일)을 추가한다. enrichment.student_fit 및 세 모드 GPT payload의 student_fit은 high / low / unclear이며 활동 성격의 원문 근거를 검증한다. 관리 중 공지에는 순위 감점을 적용하지 않는다. 비관리 공지는 같은 관심분야 조건 안에서 low를 뒤로 두며, 이 기준은 마감 긴급도·날짜보다 먼저 적용한다. 사이트 접수 마감일이 서울 기준 오늘보다 이전인 비관리 공지는 세 모드 모두 후보에서 제외한다. 제목의 괄호 접두어·공백·기호·대소문자를 정규화해 중복을 제거하며 관리 중 > 보강 완료 > 최신 게시 순으로 남긴다. 제거한 중복은 확인 목록에도 포함하지 않는다.
+
+planner_max_output_tokens 기본값은 8000이며 설명은 각 120자 이내로 요청한다. incomplete는 사유 코드만 로그에 남기고 기존 502 메시지를 유지한다. 모델의 application 마감이 사이트 마감보다 정확히 하루 늦으면 사이트 날짜로 보정하고 extraction_metadata.end_date_source=site_deadline_corrected와 확인 사유를 남긴다. 2일 이상 차이·이른 마감은 기존 확인 흐름을 유지한다. 저장 일정 보정: `python -m app.cli fix-application-end-offset --dry-run`으로 ID·전후 날짜 확인 후 옵션 없이 적용한다. 검수 이력·관리자 승인·사용자 수정 일정은 건너뛴다. dry-run은 저장·마이그레이션을 하지 않는다. enrich-v3 전환으로 기존 공개·미만료 보강 대상 전체를 다시 처리하며 예상 비용은 약 $0.4다.
 
 Google 캘린더 등록 시 접수·제출(application/submission)에 종료 시각만 있으면 시작일~마감일의 종일 기간 일정으로 등록한다(시작일이 없으면 마감일 하루). 제목 끝에 ` (마감 HH:MM)`, 설명 첫 줄에 `접수 마감: YYYY-MM-DD HH:MM`을 붙인다. 본행사 및 시작 시각이 있는 일정은 기존 시각 처리를 유지한다. 이미 Google에 등록된 일정은 자동 변경하지 않으며, 해제 후 다시 등록하면 새 방식으로 반영된다.
 

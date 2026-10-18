@@ -11,6 +11,7 @@
   python -m app.cli usage [--days 7]             OpenAI 호출 수·토큰 합계 (날짜·종류·모델별)
   python -m app.cli inspect-extraction <notice_id>...  모델 원출력·저장 일정 날짜/시각 비교
   python -m app.cli fill-application-end [--dry-run]   빈 접수 마감일을 사이트 정보로 보완
+  python -m app.cli fix-application-end-offset [--dry-run]  사이트보다 하루 늦은 접수 마감일 보정
   python -m app.cli recategorize [--dry-run]      저장된 사이트 분류 근거로 Event.category 재분류
   python -m app.cli recategorize-contestkorea [--dry-run]  저장된 대표분야로 공지·일정 분류 보정
   python -m app.cli planner --email <사용자> --mode priority|discover|focus [--call-gpt]
@@ -103,6 +104,8 @@ def main() -> None:
     p_inspect.add_argument('notice_ids', type=int, nargs='+')
     p_fill = sub.add_parser('fill-application-end', help='비어 있는 접수 마감일을 사이트 정보로 보완')
     p_fill.add_argument('--dry-run', action='store_true')
+    p_fix = sub.add_parser('fix-application-end-offset', help='사이트보다 하루 늦은 접수 마감일 보정')
+    p_fix.add_argument('--dry-run', action='store_true')
     p_import = sub.add_parser("import")
     p_import.add_argument("path")
     p_extract = sub.add_parser("extract")
@@ -127,7 +130,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # 진단·보완·재분류 명령은 스키마 초기화/마이그레이션을 실행하지 않는다.
-    if args.command not in ('recategorize', 'recategorize-contestkorea', 'inspect-extraction', 'fill-application-end'):
+    if args.command not in ('recategorize', 'recategorize-contestkorea', 'inspect-extraction', 'fill-application-end', 'fix-application-end-offset'):
         init_db()
     db = SessionLocal()
     try:
@@ -139,6 +142,12 @@ def main() -> None:
             from app.services.application_end import fill_application_ends
             count = fill_application_ends(db, dry_run=args.dry_run)
             print(f"접수 마감일 보완 {'dry-run (저장 안 함)' if args.dry_run else '반영'}: {count}건")
+        elif args.command == 'fix-application-end-offset':
+            from app.services.application_end import fix_application_end_offsets
+            changes = fix_application_end_offsets(db, dry_run=args.dry_run)
+            print(f"접수 마감일 보정 {'dry-run (저장 안 함)' if args.dry_run else '반영'}: {len(changes)}건")
+            for change in changes:
+                print(f"event_id={change['event_id']}: {change['before']} -> {change['after']}")
         elif args.command == 'recategorize-contestkorea':
             from app.services.contestkorea import recategorize_contestkorea
             result = recategorize_contestkorea(db, args.dry_run)

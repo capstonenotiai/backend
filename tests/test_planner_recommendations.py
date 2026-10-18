@@ -72,7 +72,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert set(output['items'][0]) == set(schema['properties']['items']['items']['properties'])
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v5'
+    assert PLANNER_PROMPT_VERSION == 'planner-v6'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 
@@ -220,7 +220,7 @@ def test_api_normal_path_and_server_facts(client, db, monkeypatch, mode):
     pref.ai_mode, pref.interests = 'discover', ['학사']
     notice = make_notice(db)
     event = make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
-    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=empty_enrichment('ok')))
+    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v3', facts=empty_enrichment('ok')))
     db.commit()
     calls = []
     monkeypatch.setattr(service, 'create_judgment', lambda payload: calls.append(copy.deepcopy(payload)) or output_for(payload))
@@ -329,7 +329,7 @@ def test_bad_gpt_output_does_not_change_db(client, db, monkeypatch):
     event = make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
     facts = empty_enrichment('ok')
     facts['facts'] = [{'fact_id': f'o{notice.id}.ben1', 'type': 'benefit', 'value': '면접 기회', 'evidence': '개인 원문'}]
-    enriched = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=facts)
+    enriched = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v3', facts=facts)
     state = UserEvent(user_id=user.id, event_id=event.id, bookmarked=True, action_status='pending')
     notice_state = UserNotice(user_id=user.id, notice_id=notice.id, dismissed=False)
     db.add_all([enriched, state, notice_state])
@@ -378,7 +378,7 @@ def test_sdk_strict_request_privacy_and_model(client, db, monkeypatch, mode):
     make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
     facts = empty_enrichment('ok')
     facts['facts'] = [{'fact_id': f'o{notice.id}.ben1', 'type': 'benefit', 'value': '면접 기회', 'evidence': 'PRIVATE_EVIDENCE_MARKER'}]
-    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts=facts))
+    db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v3', facts=facts))
     db.commit()
     payload, _ = planner_context.build_recommendation_context(db, user, mode, NOW)
     calls = fake_sdk(monkeypatch, SimpleNamespace(status='completed', output_text=json.dumps(output_for(payload))))
@@ -420,7 +420,7 @@ def test_sdk_incomplete_or_refusal_error(monkeypatch, status, text):
 
 def test_planner_settings_fallback():
     settings = Settings(_env_file=None, openai_model='base-model', planner_model='')
-    assert settings.planner_model == 'base-model' and settings.planner_max_output_tokens == 4000
+    assert settings.planner_model == 'base-model' and settings.planner_max_output_tokens == 8000
     assert Settings(_env_file=None, planner_model='specific-model').planner_model == 'specific-model'
 
 

@@ -16,7 +16,7 @@ PROFILE = {'major': '소프트웨어학부', 'grade': 3, 'enrollment_status': 'e
 
 
 def opportunity(number=1, **values):
-    data = {'opportunity_id': f'o{number}', 'title': 'career 진로 공지', 'category': 'career',
+    data = {'opportunity_id': f'o{number}', 'title': f'{number} career 진로 공지', 'category': 'career',
             'dismissed': False, 'user_managed': False, 'application_expired_not_done': False,
             'calendar_conflict': None, 'enrichment': empty_enrichment('ok'),
             'events': [{'event_id': f'e{number}', 'event_type': 'application', 'action_type': 'apply',
@@ -253,7 +253,7 @@ def test_payload_minimal_fields_verified_facts_single_bulk_call(db, monkeypatch)
         assert not any(secret in serialized for secret in ('PRIVATE_NAME', 'PRIVATE_EMAIL', 'PRIVATE_TOKEN', 'PRIVATE_EVIDENCE'))
         assert 'events' not in candidate and 'source_url' not in candidate and 'evidence' not in serialized
         assert all(set(fact) == {'fact_id', 'type', 'value'} for fact in candidate['facts'])
-        common = {'opportunity_id', 'title', 'eligibility', 'facts', 'requirements', 'unparsed_requirements'}
+        common = {'student_fit', 'opportunity_id', 'title', 'eligibility', 'facts', 'requirements', 'unparsed_requirements'}
         extras = {'priority': {'user_managed', 'priority_context', 'prep_items', 'how_to_apply'},
                   'discover': {'category', 'interest_match', 'enrichment_status', 'benefits', 'grouping_review_required', 'new_to_user'},
                   'focus': {'category', 'interest_match', 'enrichment_status', 'benefits', 'user_managed', 'calendar_conflict'}}
@@ -276,7 +276,7 @@ def test_payload_real_facts_enrichment_conflicts_and_grouping(db):
     for index, notice in enumerate(notices):
         event = make_event(db, notice, start_date='2030-10-10', end_date='2030-10-10')
         enriched = empty_enrichment('ok')
-        db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2',
+        db.add(NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v3',
                                grouping_review_required=index == 2, facts=enriched))
         if index == 0:
             db.add(UserEvent(user_id=user.id, event_id=event.id, registered=True))
@@ -286,7 +286,7 @@ def test_payload_real_facts_enrichment_conflicts_and_grouping(db):
     assert [item['opportunity_id'] for item in result['opportunities']] == ids[:2]
     assert result['pairwise_conflicts'] == [ids[:2]]
     assert result['opportunities'][1]['calendar_conflict'] is True
-    assert result['needs_grouping_check'] == [{'opportunity_id': ids[2], 'title': '활동', 'reason': ''}]
+    assert result['needs_grouping_check'] == [{'opportunity_id': ids[2], 'title': notices[2].title_raw, 'reason': ''}]
 
 
 def test_api_validation_current_user_visibility_and_authentication(client, db, monkeypatch):
@@ -386,7 +386,7 @@ def test_focus_conflicts_only_selected_candidates_and_grouping_not_capped(db, mo
     assert len(selected_ids) == 12
     assert len(result['pairwise_conflicts']) == 66
     assert all(set(pair) <= selected_ids for pair in result['pairwise_conflicts'])
-    assert result['needs_grouping_check'] == [{'opportunity_id': 'o19', 'title': 'career 진로 공지', 'reason': ''}]
+    assert result['needs_grouping_check'] == [{'opportunity_id': 'o19', 'title': items[-1]['title'], 'reason': ''}]
 
 
 def test_preferred_conditions_do_not_make_eligibility_uncertain():

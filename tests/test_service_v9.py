@@ -79,7 +79,7 @@ def test_reference_time_sent_and_warning_publication(client, db, monkeypatch):
     assert model.references == ['2030-09-30']
     assert notice.extraction_state == 'extracted'
     assert all(e.ai_extracted and e.review_status == 'auto' for e in events)
-    assert events[0].end_date == '2030-10-23'  # Never overwrite a model deadline.
+    assert events[0].end_date == '2030-10-22'  # Correct the exact one-day site offset.
     assert '사이트 접수 마감일' in events[0].review_reason
     item = next(e for e in client.get('/api/events').json() if e['notice_id']==notice.id)
     assert item['review_required'] and item['source_url']
@@ -232,14 +232,14 @@ def test_interview_exclusion_user_override_google_and_isolation(client, db, monk
     assert bodies[0]['end'] == {'date': '2030-10-22'}
     assert bodies[0]['summary'].endswith(' (마감 17:00)')
     assert bodies[0]['location']=='내 장소'
-    assert db.get(Event,events[0].id).end_date=='2030-10-23'
+    assert db.get(Event,events[0].id).end_date=='2030-10-22'
     assert client.post('/api/calendar/register',json={'event_id':events[2].id,'confirmed':True}).status_code==400
     assert client.post(f'/api/calendar/interviews/{events[2].id}',json={'confirmed':True}).status_code==200
     other=User(email='other@test',name='other');db.add(other);db.commit()
     app.dependency_overrides[get_current_user]=lambda:other
     try:
         detail=client.get(f'/api/events/{events[0].id}').json()['events'][0]
-        assert detail['end_date']=='2030-10-23' and not detail['registered'] and not detail['user_modified']
+        assert detail['end_date']=='2030-10-22' and not detail['registered'] and not detail['user_modified']
     finally: app.dependency_overrides.pop(get_current_user,None)
 
 
@@ -308,7 +308,7 @@ def test_planner_facts_seoul_overrides_deadline_and_conflict(client,db):
 def test_facts_future_all_day_and_adjacent_intervals(db):
     _,events,_=extracted(db);user=get_or_create_dev_user(db)
     f=event_facts(db,user,events[0],now=datetime(2030,9,30,23,59,tzinfo=ZoneInfo('Asia/Seoul')))
-    assert not f['can_apply_now'] and not f['expired'] and f['days_until_deadline']==23
+    assert not f['can_apply_now'] and not f['expired'] and f['days_until_deadline']==22
     item=events[1]
     another=Event(source='cbnu',title='인접',start_date=item.end_date,end_date=item.end_date,
         start_time='15:00',end_time='16:00',location='',detail='',review_status='auto')

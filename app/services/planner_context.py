@@ -166,7 +166,8 @@ def priority_context(opportunity):
 def priority_sort_key(opportunity):
     focus = focus_event(opportunity)
     day = (focus['action_date'] or '9999-12-31') if focus else '9999-12-31'
-    return (not opportunity['user_managed'], URGENCY_ORDER[focus['urgency']] if focus else 4,
+    return (not opportunity['user_managed'],
+            _low_student_fit(opportunity), URGENCY_ORDER[focus['urgency']] if focus else 4,
             not opportunity['enrichment']['is_mandatory'], not _early_close(opportunity, focus),
             WINDOW_ORDER[focus['action_window']] if focus else 2,
             day,
@@ -187,6 +188,33 @@ def _deadline_key(opportunity):
     return (day, _id_number(opportunity['opportunity_id']))
 
 
+def _low_student_fit(item):
+    return not item['user_managed'] and item['enrichment'].get('student_fit') == 'low'
+
+
+def _discovery_sort_key(item):
+    return (not (item['interest_match']['direct'] or item['interest_match']['related']),
+            _low_student_fit(item), item['enrichment']['enrichment_status'] == 'missing', _deadline_key(item))
+
+
+def normalized_title(title):
+    title = re.sub(r'^(?:\s*\[[^\]]*\])+', '', title)
+    return re.sub(r'[\W_]+', '', title.lower())
+
+
+def _deduplicate(items):
+    chosen = {}
+
+    def rank(value):
+        return (value['user_managed'], value['enrichment']['enrichment_status'] != 'missing',
+                value.get('published_at') or '', _id_number(value['opportunity_id']))
+    for item in items:
+        key = normalized_title(item['title']) or item['opportunity_id']
+        if key not in chosen or rank(item) > rank(chosen[key]):
+            chosen[key] = item
+    return list(chosen.values())
+
+
 def select_candidates(opportunities, profile, mode, now=None):
     if mode not in CANDIDATE_LIMITS:
         raise ValueError('Unknown planner mode')
@@ -205,18 +233,22 @@ def select_candidates(opportunities, profile, mode, now=None):
                  'interest_match': interest_match(item, profile['interests']),
                  'priority_context': priority_context(item),
                  'requirement_comparisons': requirement_comparisons(item, profile)} for item in opportunities]
+    prepared = [item for item in prepared if item['user_managed']
+                or not item.get('application_end_date')
+                or item['application_end_date'] >= today.isoformat()]
     grouping = []
     if mode == 'priority':
         candidates = [item for item in prepared if not item['dismissed']
                       and (item['user_managed'] or item['eligibility'] != 'ineligible') and focus_event(item)
                       and (item['user_managed'] or item['interest_match']['direct'] or item['interest_match']['related'])]
+        candidates = _deduplicate(candidates)
         candidates.sort(key=priority_sort_key)
     else:
-        candidates = sorted((item for item in prepared if _discover_candidate(item) and enough_lead(item)),
-                            key=lambda item: (not (item['interest_match']['direct'] or item['interest_match']['related']),
-                                              item['enrichment']['enrichment_status'] == 'missing', _deadline_key(item)))
+        candidates = [item for item in prepared if _discover_candidate(item) and enough_lead(item)]
         if mode == 'focus':
             candidates = [item for item in candidates if item['interest_match']['direct'] or item['interest_match']['related']]
+        candidates = sorted(_deduplicate(candidates), key=_discovery_sort_key)
+        if mode == 'focus':
             grouping = [item for item in candidates if item['enrichment']['grouping_review_required']]
             candidates = [item for item in candidates if not item['enrichment']['grouping_review_required']]
     return candidates[:CANDIDATE_LIMITS[mode]], grouping
@@ -248,6 +280,7 @@ def _payload_opportunity(item, mode):
             'prep_item', 'how_to_apply', 'requirement', 'unparsed_requirement')
             or fact['type'] == 'early_close' and fact['fact_id'] in early_ids]
     output = {key: item[key] for key in ('opportunity_id', 'title', 'eligibility')}
+    output['student_fit'] = item['enrichment'].get('student_fit', 'unclear')
     output['facts'] = [{key: fact[key] for key in ('fact_id', 'type', 'value')} for fact in facts]
     for field, kind in (('requirements', 'requirement'), ('unparsed_requirements', 'unparsed_requirement')):
         output[field] = [fact['value'] for fact in facts if fact['type'] == kind]

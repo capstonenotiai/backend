@@ -39,7 +39,7 @@ def test_audience_storage_legacy_and_version_requeue(db, monkeypatch):
     monkeypatch.setattr(enrichment, 'get_settings', lambda: Settings(_env_file=None, openai_api_key='fake'))
     notice = make_notice(db, body='초등학생만')
     event = make_event(db, notice)
-    saved = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v2', facts={})
+    saved = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v3', facts={})
     db.add(saved)
     db.commit()
     assert enrichment.get_enrichment(db, notice.id)['audience'] == 'unclear'
@@ -50,7 +50,7 @@ def test_audience_storage_legacy_and_version_requeue(db, monkeypatch):
     output['audience'] = claim('excludes_university', '초등학생만')
     client = FakeClient(output)
     assert enrichment.enrich_pending(db, client=client, now=NOW) == 1
-    assert len(client.calls) == 1 and saved.prompt_version == 'enrich-v2'
+    assert len(client.calls) == 1 and saved.prompt_version == 'enrich-v3'
     assert enrichment.get_enrichment(db, notice.id)['audience'] == 'excludes_university'
 
 

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-6-luna"
     openai_max_output_tokens: int = 800
     planner_model: str = ""
-    planner_max_output_tokens: int = 4000
+    planner_max_output_tokens: int = 8000
     enrich_model: str = ""
     enrich_max_output_tokens: int = 4000
     enrich_cron: str = "*/30 * * * *"

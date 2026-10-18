@@ -17,7 +17,7 @@ from app.services.pipeline import RETRY_DELAYS
 from app.timeutil import as_aware
 
 log = logging.getLogger(__name__)
-ENRICHMENT_PROMPT_VERSION = 'enrich-v2'
+ENRICHMENT_PROMPT_VERSION = 'enrich-v3'
 ENRICHMENT_MAX_TEXT_CHARS = 12_000
 ENRICHMENT_MAX_ATTEMPTS = 3
 ENRICHMENT_PROMPT = """당신은 대학 공지의 추천용 의미 정보를 추출한다. JSON 스키마에 맞춰 반환한다.
@@ -37,6 +37,9 @@ audience=excludes_university다(초등학생·어린이만, 중·고교생만, �
 특정 기업 재직자만). 대학생·대학원생·청년·일반인·누구나·제한 없음이 포함되면
 open_to_university다. 연령만 있어 대학생 포함 여부가 애매하거나 대상이 없으면 unclear다.
 audience의 evidence는 대상 문구를 그대로 인용하고 근거가 없으면 unclear와 빈 evidence다.
+student_fit은 대학생 진로·전공·역량·경력에 직접 도움이 되는 공모전·서포터즈·인턴·교육·대외활동이면 high,
+취미·체육행사·공연 출연·일반 시민 이벤트·경품 행사이면 low, 불명확하면 unclear다.
+student_fit의 evidence에는 활동 성격을 뒷받침하는 원문을 인용하고 근거가 없으면 unclear와 빈 evidence다.
 related_interests는 scholarship(장학), academic(학사), career(진로/취업),
 contest(공모전), activity(대외/학생활동) 중 원문에서 직접 연결되는 분야만 고른다.
 requirements는 grade(학년), enrollment_status(재학/휴학/졸업), major(전공), other로
@@ -71,6 +74,7 @@ def _array(item):
 
 
 ENRICHMENT_SCHEMA = _object(
+    student_fit=_claim(_string(('high', 'low', 'unclear'))),
     audience=_claim(_string(('open_to_university', 'excludes_university', 'unclear'))),
     notice_kind=_claim(_string(('normal', 'extension', 'correction', 'cancellation'))),
     grouping_review_required=_claim({'type': 'boolean'}),
@@ -111,7 +115,7 @@ def evidence_valid(evidence, source):
 
 
 def empty_enrichment(status='missing'):
-    return {'audience': 'unclear', 'notice_kind': 'normal', 'grouping_review_required': False,
+    return {'student_fit': 'unclear', 'audience': 'unclear', 'notice_kind': 'normal', 'grouping_review_required': False,
             'grouping_review_reason': '', 'enrichment_status': status, 'low_confidence_reasons': [],
             'is_mandatory': False, 'facts': [], 'events': []}
 
@@ -137,7 +141,7 @@ def validate_enrichment(output, notice_id, title_raw, raw_text, event_ids):
         result['facts'].append({'fact_id': fact_id, 'type': kind, 'value': value, 'evidence': evidence})
         return fact_id
 
-    for key in ('audience', 'notice_kind', 'grouping_review_required', 'grouping_review_reason', 'is_mandatory'):
+    for key in ('student_fit', 'audience', 'notice_kind', 'grouping_review_required', 'grouping_review_reason', 'is_mandatory'):
         item = output.get(key)
         value = item.get('value') if isinstance(item, dict) else None
         valid = validated(item, properties[key])
@@ -303,6 +307,7 @@ def enrich_pending(db, client=None, limit=None, now=None):
                                            [event['event_id'] for event in payload['events']])
             enrichment.facts = {'facts': validated['facts'], 'events': validated['events'],
                                 'is_mandatory': validated['is_mandatory'], 'audience': validated['audience'],
+                                'student_fit': validated['student_fit'],
                                 'low_confidence_reasons': validated['low_confidence_reasons']}
             for key in ('notice_kind', 'grouping_review_required', 'grouping_review_reason', 'enrichment_status'):
                 setattr(enrichment, key, validated[key])
@@ -354,6 +359,7 @@ def get_enrichment(db, notice_id):
     for key in ('notice_kind', 'grouping_review_required', 'grouping_review_reason'):
         result[key] = getattr(enrichment, key)
     stored = enrichment.facts or {}
+    result['student_fit'] = stored.get('student_fit', 'unclear')
     result['audience'] = stored.get('audience', 'unclear')
     result['is_mandatory'] = stored.get('is_mandatory', False)
     result['low_confidence_reasons'] = stored.get('low_confidence_reasons', [])

@@ -97,7 +97,7 @@ def test_normal_storage_ids_input_privacy_and_opportunity(db, settings):
     assert enrich.enrich_pending(db, client=client, now=NOW) == 1
     saved = db.get(NoticeEnrichment, notice.id)
     assert saved.state == 'done' and saved.attempts == 1 and saved.error is None and saved.next_attempt_at is None
-    assert saved.prompt_version == 'enrich-v2' and saved.raw['output'] == client.output
+    assert saved.prompt_version == 'enrich-v3' and saved.raw['output'] == client.output
     assert saved.raw['input_truncated'] is False and saved.enrichment_status == 'ok'
     result = enrich.get_enrichment(db, notice.id)
     ids = [fact['fact_id'] for fact in result['facts']]
@@ -290,10 +290,10 @@ def test_version_change_resets_and_reprocesses(db, settings, monkeypatch, state)
     saved.prompt_version = 'enrich-v1'
     saved.state, saved.attempts, saved.next_attempt_at = state, 3, NOW + timedelta(days=1)
     db.commit()
-    monkeypatch.setattr(enrich, 'ENRICHMENT_PROMPT_VERSION', 'enrich-v2')
+    monkeypatch.setattr(enrich, 'ENRICHMENT_PROMPT_VERSION', 'enrich-v3')
     assert enrich.get_enrichment(db, notice.id)['enrichment_status'] == 'missing'
     assert enrich.enrich_pending(db, client, now=NOW) == 1 and len(client.calls) == 2
-    assert saved.attempts == 1 and saved.prompt_version == 'enrich-v2' and saved.state == 'done'
+    assert saved.attempts == 1 and saved.prompt_version == 'enrich-v3' and saved.state == 'done'
 
 
 def test_public_only_limit_and_prompt_version_processing_not_claimed(db, settings):
@@ -410,7 +410,7 @@ def test_get_missing_and_removal_of_hidden_event_facts(db, settings):
 def test_interrupted_processing_recovered(db, settings):
     for index, attempts in enumerate([1, 3]):
         notice = make_notice(db, str(index))
-        db.add(NoticeEnrichment(notice_id=notice.id, state='processing', attempts=attempts, prompt_version='enrich-v2'))
+        db.add(NoticeEnrichment(notice_id=notice.id, state='processing', attempts=attempts, prompt_version='enrich-v3'))
     db.commit()
     assert enrich.mark_interrupted_enrichments(db) == 2
     assert [row.state for row in db.scalars(select(NoticeEnrichment).order_by(NoticeEnrichment.notice_id))] == ['retry_pending', 'failed']

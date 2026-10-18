@@ -41,7 +41,8 @@
     "grouping_review_required",
     "is_mandatory",
     "low_confidence_reasons",
-    "notice_kind"
+    "notice_kind",
+    "student_fit"
   ],
   "detail": [
     "dismissed",

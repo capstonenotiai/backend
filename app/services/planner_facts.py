@@ -175,6 +175,7 @@ def opportunity_facts(db, user, notice, now=None, context=None):
     return {'opportunity_id': f'o{notice.id}', 'title': notice.title_raw, 'source_url': notice.source_url,
         'category': next((event.category for event, _ in rows if event.category), None),
         'dismissed': notice.id in context['dismissed'], 'user_managed': notice.id in context['managed'],
+        'application_end_date': notice.application_end_date, 'published_at': notice.published_at,
         'events': events,
         'enrichment': get_enrichment(db, notice.id),
         'application_expired_not_done': bool(applications) and all(event['expired'] is True for event in applications)
