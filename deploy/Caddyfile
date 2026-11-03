@@ -1,0 +1,18 @@
+{
+    auto_https off
+}
+
+:80 {
+    handle /api/* {
+        reverse_proxy api:8000 {
+            # Cloudflare terminates TLS before this private HTTP hop.
+            header_up X-Forwarded-Proto https
+        }
+    }
+    handle {
+        root * /srv/www
+        try_files {path} /index.html
+        file_server
+    }
+    encode gzip
+}

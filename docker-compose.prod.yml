@@ -1,0 +1,61 @@
+name: notiai
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: notiai-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-notiai}
+      MYSQL_USER: ${MYSQL_USER:-notiai}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-notiai}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    container_name: notiai-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Keep the original database separate; never derive this from MYSQL_DATABASE.
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-notiai}:${MYSQL_PASSWORD:-notiai}@db:3306/notiai_b7_20261007?charset=utf8mb4
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../frontend/dist:/srv/www:ro
+    depends_on:
+      - api
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    profiles: [tunnel]
+    depends_on:
+      - caddy
+
+volumes:
+  mysql-data:
+    # Fail rather than silently creating a fresh database under a different name.
+    external: true
+    name: notiai_mysql-data
