@@ -97,9 +97,10 @@ def test_frontend_response_keys(client, db, monkeypatch):
         elif path == '/api/dashboard':
             assert body['sources']
             shapes['dashboard source'] = sorted(body['sources'][0])
-    call('POST', '/api/calendar/register', json={'event_id': str(event.id)})
-    calendar = call('GET', '/api/calendar/events')
-    assert calendar and all(sorted(item) == shapes['event'] for item in calendar)
+    later = make_notice(db)  # 새 기회는 마감까지 2일 이상 남은 미관리 공지만 후보다
+    make_event(db, later, category='academic', start_date='2030-10-20', end_date='2030-10-20')
+    db.add(NoticeEnrichment(notice_id=later.id, state='done', prompt_version='enrich-v3', facts=empty_enrichment('ok')))
+    db.commit()
     for mode in ('priority', 'discover', 'focus'):
         body = call('POST', '/api/planner/recommendations', json={'mode': mode})
         keys('recommendations ' + mode, body)
@@ -107,6 +108,9 @@ def test_frontend_response_keys(client, db, monkeypatch):
         shapes['recommendation item ' + mode] = sorted(body['items'][0])
         assert all(sorted(item) == shapes['recommendation item ' + mode] for item in body['items'])
         shapes['priority_context ' + mode] = sorted(body['items'][0]['priority_context'])
+    call('POST', '/api/calendar/register', json={'event_id': str(event.id)})
+    calendar = call('GET', '/api/calendar/events')
+    assert calendar and all(sorted(item) == shapes['event'] for item in calendar)
     grouped = make_notice(db)
     make_event(db, grouped, category='academic', start_date='2030-10-10', end_date='2030-10-10')
     db.add(NoticeEnrichment(notice_id=grouped.id, state='done', prompt_version='enrich-v3',

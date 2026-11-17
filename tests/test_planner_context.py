@@ -217,7 +217,7 @@ def test_candidate_filters(mode):
     items[8]['category'] = '학사'
     add_fact(items[8], 'related_interest', 'career')
     selected, grouping = planner.select_candidates(items, PROFILE, mode)
-    expected = {'priority': {'o1', 'o6', 'o8', 'o9'},
+    expected = {'priority': {'o1', 'o8', 'o9'},  # o6: 마감 지난 접수는 먼저 할 일에서 제외
                 'discover': {'o1', 'o7', 'o8', 'o9'}, 'focus': {'o1', 'o9'}}
     assert {item['opportunity_id'] for item in selected} == expected[mode]
     assert [item['opportunity_id'] for item in grouping] == (['o8'] if mode == 'focus' else [])
@@ -343,15 +343,14 @@ def test_real_expired_application_rule_order_and_done_advance(db):
     state = UserEvent(user_id=user.id, event_id=application.id, bookmarked=True)
     db.add(state)
     db.commit()
-    result = planner.build_payload(db, user, 'priority', NOW)
-    # 만료된 접수의 window=unknown 은 무시하고 신청 여부 확인 흐름을 유지한다
-    assert result['opportunities'][0]['priority_context'] == {
-        'focus_event_id': f'e{application.id}', 'next_step_type': 'verify', 'verify_target': 'application_confirmation'}
+    # 마감이 지난 접수(신청 여부 미확인)는 먼저 할 일·새 기회 모두에서 빠진다
+    assert planner.build_payload(db, user, 'priority', NOW)['opportunities'] == []
     assert planner.build_payload(db, user, 'discover', NOW)['opportunities'] == []
     state.action_status = 'done'
     db.commit()
+    # 신청을 마치면 다음 일정(본행사)으로 넘어간다. 관심 저장한 공지라 새 기회에는 나오지 않는다.
     assert planner.build_payload(db, user, 'priority', NOW)['opportunities'][0]['priority_context']['focus_event_id'] == f'e{main.id}'
-    assert len(planner.build_payload(db, user, 'discover', NOW)['opportunities']) == 1
+    assert planner.build_payload(db, user, 'discover', NOW)['opportunities'] == []
 
 
 def test_sort_urgency_all_bands_before_other_signals_and_notice_ties():

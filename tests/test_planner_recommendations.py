@@ -332,7 +332,8 @@ def test_bad_gpt_output_does_not_change_db(client, db, monkeypatch):
     facts = empty_enrichment('ok')
     facts['facts'] = [{'fact_id': f'o{notice.id}.ben1', 'type': 'benefit', 'value': '면접 기회', 'evidence': '개인 원문'}]
     enriched = NoticeEnrichment(notice_id=notice.id, state='done', prompt_version='enrich-v3', facts=facts)
-    state = UserEvent(user_id=user.id, event_id=event.id, bookmarked=True, action_status='pending')
+    # 새 기회 후보가 되도록 관심 저장하지 않은 상태로 둔다 (관리 중인 공지는 새 기회에서 빠짐).
+    state = UserEvent(user_id=user.id, event_id=event.id, bookmarked=False, action_status='pending')
     notice_state = UserNotice(user_id=user.id, notice_id=notice.id, dismissed=False)
     db.add_all([enriched, state, notice_state])
     db.commit()

@@ -113,6 +113,9 @@ def test_fit_order_interest_and_managed(mode):
     assert planner._payload_opportunity(selected[1], mode)['student_fit'] == 'low'
     low['user_managed'] = True
     selected, _ = planner.select_candidates([high, low], PROFILE, mode, NOW)
+    if mode == 'discover':
+        assert [i['opportunity_id'] for i in selected] == ['o2']  # 관리 중인 공지는 새 기회가 아니다
+        return
     assert selected[0]['opportunity_id'] == 'o1'
 
 
@@ -125,7 +128,7 @@ def test_site_deadline_boundary_and_managed(mode):
     items[2]['user_managed'] = True
     items[2]['user_registered'] = True
     selected, _ = planner.select_candidates(items, PROFILE, mode, NOW)
-    assert {i['opportunity_id'] for i in selected} == {'o2', 'o3'}
+    assert {i['opportunity_id'] for i in selected} == ({'o2'} if mode == 'discover' else {'o2', 'o3'})
 
 
 @pytest.mark.parametrize('mode', ['priority', 'discover', 'focus'])
@@ -138,7 +141,8 @@ def test_duplicate_preference_and_grouping(mode):
     items[2]['published_at'] = '2030-10-08'
     items[3]['user_managed'] = True
     selected, grouping = planner.select_candidates(items, PROFILE, mode, NOW)
-    assert [i['opportunity_id'] for i in selected] == ['o4'] and not grouping
+    # 같은 제목은 관리 중인 공지(o4)로 합친다. 새 기회에서는 그 공지 자체가 빠진다.
+    assert [i['opportunity_id'] for i in selected] == ([] if mode == 'discover' else ['o4']) and not grouping
     selected, _ = planner.select_candidates(items[:3], PROFILE, mode, NOW)
     assert [i['opportunity_id'] for i in selected] == ['o3']
 

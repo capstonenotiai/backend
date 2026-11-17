@@ -6,6 +6,8 @@ from app.services.planner_facts import SEOUL, all_opportunity_facts, pairwise_co
 from app.services.preferences import get_or_create_preference
 
 DISCOVER_MIN_LEAD_DAYS = 2
+# 집중할 것: 마감 임박 공지만 몰리지 않도록 마감 구간별로 번갈아 고른다 (상한 일수, 마지막은 그 이후 전부)
+FOCUS_DEADLINE_BUCKETS = (2, 7, 14)
 CANDIDATE_LIMITS = {'priority': 15, 'discover': 20, 'focus': 12}
 URGENCY_ORDER = {'urgent': 0, 'soon': 1, 'upcoming': 2, 'later': 3, 'none': 4}
 WINDOW_ORDER = {'open': 0, 'not_open': 1, 'unknown': 2}
@@ -197,6 +199,38 @@ def _discovery_sort_key(item):
             _low_student_fit(item), item['enrichment']['enrichment_status'] == 'missing', _deadline_key(item))
 
 
+def _newest_first_key(item):
+    """새 기회: 관심 일치 → 학생 적합 → 보강 여부 → 최근 수집 순 → 마감 순"""
+    collected = item.get('collected_at') or item.get('published_at')
+    try:
+        recency = -datetime.fromisoformat(collected).timestamp() if collected else float('inf')
+    except ValueError:
+        recency = float('inf')
+    return (*_discovery_sort_key(item)[:3], recency, _deadline_key(item))
+
+
+def _spread_by_deadline(items, today, limit):
+    """정렬 순서는 지키되 한 마감 구간(0~2일, 3~7일, 8~14일, 15일 이후)이 자리를 독차지하지 않게 한다.
+    구간마다 몫(limit / 후보가 있는 구간 수)까지만 먼저 고르고, 남는 자리는 순서대로 채운다."""
+    def bucket(item):
+        focus = focus_event(item)
+        day = focus['action_date'] if focus else None
+        days = (datetime.fromisoformat(day).date() - today).days if day else None
+        return len(FOCUS_DEADLINE_BUCKETS) if days is None else next(
+            (i for i, upper in enumerate(FOCUS_DEADLINE_BUCKETS) if days <= upper), len(FOCUS_DEADLINE_BUCKETS))
+    keys = [bucket(item) for item in items]
+    quota = -(-limit // max(1, len(set(keys))))
+    taken, counts = set(), {}
+    for index, key in enumerate(keys):
+        if len(taken) < limit and counts.get(key, 0) < quota:
+            taken.add(index); counts[key] = counts.get(key, 0) + 1
+    for index in range(len(items)):
+        if len(taken) >= limit:
+            break
+        taken.add(index)
+    return [item for index, item in enumerate(items) if index in taken]
+
+
 def normalized_title(title):
     title = re.sub(r'^(?:\s*\[[^\]]*\])+', '', title)
     return re.sub(r'[\W_]+', '', title.lower())
@@ -238,19 +272,23 @@ def select_candidates(opportunities, profile, mode, now=None):
                 or item['application_end_date'] >= today.isoformat()]
     grouping = []
     if mode == 'priority':
-        candidates = [item for item in prepared if not item['dismissed']
+        # 먼저 할 일: 지금 할 수 있는 일만. 마감이 지난 접수(신청 여부 확인)는 넣지 않는다.
+        candidates = [item for item in prepared if not item['dismissed'] and not item['application_expired_not_done']
                       and (item['user_managed'] or item['eligibility'] != 'ineligible') and focus_event(item)
                       and (item['user_managed'] or item['interest_match']['direct'] or item['interest_match']['related'])]
         candidates = _deduplicate(candidates)
         candidates.sort(key=priority_sort_key)
     else:
         candidates = [item for item in prepared if _discover_candidate(item) and enough_lead(item)]
-        if mode == 'focus':
+        if mode == 'discover':
+            # 새 기회: 이미 관심 저장·등록한 공지는 새 기회가 아니다. 최근 수집한 공지부터.
+            candidates = sorted([item for item in _deduplicate(candidates) if not item['user_managed']], key=_newest_first_key)
+        else:
             candidates = [item for item in candidates if item['interest_match']['direct'] or item['interest_match']['related']]
-        candidates = sorted(_deduplicate(candidates), key=_discovery_sort_key)
-        if mode == 'focus':
+            candidates = sorted(_deduplicate(candidates), key=_discovery_sort_key)
             grouping = [item for item in candidates if item['enrichment']['grouping_review_required']]
-            candidates = [item for item in candidates if not item['enrichment']['grouping_review_required']]
+            candidates = _spread_by_deadline([item for item in candidates if not item['enrichment']['grouping_review_required']],
+                                             today, CANDIDATE_LIMITS['focus'])
     return candidates[:CANDIDATE_LIMITS[mode]], grouping
 
 

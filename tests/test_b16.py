@@ -74,6 +74,9 @@ def test_candidate_lead_days(mode, days, managed):
     item = opportunity(user_managed=managed)
     item['events'][0]['action_date'] = (NOW.date() + timedelta(days=days)).isoformat() if days is not None else None
     selected, _ = planner_context.select_candidates([item], PROFILE, mode, NOW)
+    if mode == 'discover' and managed:
+        assert selected == []  # 새 기회: 이미 관심 저장·등록한 공지는 제외
+        return
     assert bool(selected) == (mode == 'priority' or managed or days is None or days >= 2)
 
 

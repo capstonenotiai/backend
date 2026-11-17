@@ -37,6 +37,7 @@
     "application_expired_not_done",
     "calendar_conflict",
     "category",
+    "collected_at",
     "dismissed",
     "enrichment",
     "events",

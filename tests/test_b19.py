@@ -85,13 +85,14 @@ def test_expired_bookmark_excluded_registered_retained(db, mode):
     assert all(item['user_managed'] for item in facts)
     assert [item['user_registered'] for item in facts] == [False, True]
     selected, _ = select_candidates(facts, PROFILE, mode, NOW)
-    assert [item['opportunity_id'] for item in selected] == [facts[1]['opportunity_id']]
-    # Actual expired applications still use the existing confirmation flow in priority.
+    # 새 기회는 관리 중인 공지를 제외한다.
+    assert [item['opportunity_id'] for item in selected] == ([] if mode == 'discover' else [facts[1]['opportunity_id']])
+    # 실제로 마감이 지난 접수는 먼저 할 일에서 빠진다 (신청 여부 확인 항목을 넣지 않음).
     if mode == 'priority':
         selected[0]['events'][0].update(expired=True)
         selected[0]['application_expired_not_done'] = True
-        selected, _ = select_candidates(selected, PROFILE, mode, NOW)
-        assert selected[0]['priority_context']['verify_target'] == 'application_confirmation'
+        assert selected[0]['priority_context']['verify_target'] is None
+        assert select_candidates(selected, PROFILE, mode, NOW)[0] == []
 
 
 def test_title_cli_dry_run_and_review_protection(db, monkeypatch, capsys):
