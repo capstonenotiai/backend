@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     chat_per_minute: int = 6
     chat_per_day: int = 60
     recommend_per_day: int = 30
-    ai_daily_token_budget: int = 10_000_000
+    ai_daily_token_budget: int = 5_000_000
     enrich_model: str = ""
     enrich_max_output_tokens: int = 4000
     enrich_cron: str = "*/30 * * * *"
