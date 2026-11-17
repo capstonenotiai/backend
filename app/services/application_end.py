@@ -93,8 +93,8 @@ TITLE_DEADLINE_REASON = '접수 마감일을 제목 정보로 채웠어요. 원�
 
 
 def deadline_mismatch_reason(source):
-    return ('제목의 마감일과 AI 마감일이 달라요. 원문 확인이 필요해요.' if source == 'title'
-            else '사이트 접수 마감일과 AI 마감일이 다릅니다. 원문 확인이 필요합니다.')
+    return ('제목의 마감일과 AI 마감일이 달라요. 원문에서 확인해 주세요.' if source == 'title'
+            else '사이트 접수 마감일과 AI 마감일이 달라요. 원문에서 확인해 주세요.')
 
 
 def fill_title_deadlines(db, dry_run=False):

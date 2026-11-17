@@ -118,9 +118,9 @@ def parse_model_response(data: dict, title: str) -> ExtractionResult:
             if item.get('review_reason'):
                 reasons.append(item['review_reason'])
             elif item.get('review_required'):
-                reasons.append('모델이 원문 확인을 요청했습니다.')
+                reasons.append('AI가 원문 확인을 요청했어요. 원문에서 확인해 주세요.')
             if metadata.get('review_required_events'):
-                reasons.append('모델이 날짜·장소 원문 확인을 요청했습니다.')
+                reasons.append('AI가 날짜·장소 확인을 요청했어요. 원문에서 확인해 주세요.')
             if not value.end_date:
                 reasons.append('종료일 또는 마감일을 원문에서 확인해 주세요.')
             results.append(Extraction(**value.model_dump(exclude={'id'}), review_status='auto',
