@@ -77,6 +77,9 @@ def test_candidate_lead_days(mode, days, managed):
     if mode == 'discover' and managed:
         assert selected == []  # 새 기회: 이미 관심 저장·등록한 공지는 제외
         return
+    if mode == 'discover':  # 새 기회는 5일 이상 남은 공지만 (날짜 없으면 포함)
+        assert bool(selected) == (days is None or days >= planner_context.NEW_OPPORTUNITY_MIN_LEAD_DAYS)
+        return
     assert bool(selected) == (mode == 'priority' or managed or days is None or days >= 2)
 
 

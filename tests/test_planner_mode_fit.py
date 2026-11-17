@@ -2,7 +2,7 @@
 from datetime import timedelta
 
 from app.services import planner_context as planner
-from test_planner_context import PROFILE, opportunity
+from test_planner_context import PROFILE, opportunity, requirement
 from test_planner_opportunities import NOW
 
 
@@ -45,3 +45,13 @@ def test_no_interests_does_not_empty_priority_or_focus():
     for mode in ('priority', 'focus'):
         selected, _ = planner.select_candidates(items, profile, mode, NOW)
         assert len(selected) == 3, mode
+
+
+def test_discover_needs_five_days_and_confirmed_eligibility_first():
+    near, far_unsure, far_ok = at(opportunity(1), 4), at(opportunity(2), 6), at(opportunity(3), 9)
+    for item in (near, far_unsure, far_ok):
+        item['collected_at'] = '2030-10-07T09:00:00'
+    requirement(far_unsure, value='애매')  # 해석 못 한 학년 조건 → 자격 확인 필요
+    selected, _ = planner.select_candidates([near, far_unsure, far_ok], PROFILE, 'discover', NOW)
+    assert [item['eligibility'] for item in selected] == ['eligible', 'needs_check']
+    assert [item['opportunity_id'] for item in selected] == ['o3', 'o2']  # 4일 남은 o1 은 제외

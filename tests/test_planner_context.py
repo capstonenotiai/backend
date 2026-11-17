@@ -14,6 +14,13 @@ from test_planner_opportunities import NOW, make_event, make_notice
 
 PROFILE = {'major': '소프트웨어학부', 'grade': 3, 'enrollment_status': 'enrolled', 'interests': ['career']}
 
+
+
+@pytest.fixture(autouse=True)
+def _legacy_new_opportunity_lead(monkeypatch):
+    """이 파일은 다른 규칙을 검증하며 2일 뒤 일정을 쓴다. 새 기회 5일 기준은 test_planner_mode_fit 에서 검증."""
+    from app.services import planner_context as _pc
+    monkeypatch.setattr(_pc, 'NEW_OPPORTUNITY_MIN_LEAD_DAYS', _pc.DISCOVER_MIN_LEAD_DAYS)
 
 def opportunity(number=1, **values):
     data = {'opportunity_id': f'o{number}', 'title': f'{number} career 진로 공지', 'category': 'career',

@@ -21,6 +21,13 @@ from app.services.preferences import get_or_create_preference
 from test_planner_context import opportunity, add_fact
 from test_planner_opportunities import NOW, make_event, make_notice
 
+
+
+@pytest.fixture(autouse=True)
+def _legacy_new_opportunity_lead(monkeypatch):
+    """이 파일은 다른 규칙을 검증하며 2일 뒤 일정을 쓴다. 새 기회 5일 기준은 test_planner_mode_fit 에서 검증."""
+    from app.services import planner_context as _pc
+    monkeypatch.setattr(_pc, 'NEW_OPPORTUNITY_MIN_LEAD_DAYS', _pc.DISCOVER_MIN_LEAD_DAYS)
 
 @pytest.fixture(autouse=True)
 def clear_cache(monkeypatch):
@@ -74,7 +81,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert all(set(output['items'][0]) == set(node['properties']) for node in branches)
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v8'
+    assert PLANNER_PROMPT_VERSION == 'planner-v9'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 

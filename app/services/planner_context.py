@@ -6,6 +6,8 @@ from app.services.planner_facts import SEOUL, all_opportunity_facts, pairwise_co
 from app.services.preferences import get_or_create_preference
 
 DISCOVER_MIN_LEAD_DAYS = 2
+# 새 기회: 준비할 시간이 있는 공지만 (마감·행동일까지 5일 이상, 날짜 없는 공지는 포함)
+NEW_OPPORTUNITY_MIN_LEAD_DAYS = 5
 # 집중할 것: 마감 임박 공지만 몰리지 않도록 마감 구간별로 번갈아 고른다 (상한 일수, 마지막은 그 이후 전부)
 FOCUS_DEADLINE_BUCKETS = (2, 7, 14)
 CANDIDATE_LIMITS = {'priority': 15, 'discover': 20, 'focus': 12}
@@ -200,13 +202,13 @@ def _discovery_sort_key(item):
 
 
 def _newest_first_key(item):
-    """새 기회: 관심 일치 → 학생 적합 → 보강 여부 → 최근 수집 순 → 마감 순"""
+    """새 기회: 관심 일치 → 학생 적합 → 보강 여부 → 자격 확인됨 → 최근 수집일 → 마감 순"""
     collected = item.get('collected_at') or item.get('published_at')
     try:
-        recency = -datetime.fromisoformat(collected).timestamp() if collected else float('inf')
+        recency = -datetime.fromisoformat(collected).date().toordinal() if collected else float('inf')
     except ValueError:
         recency = float('inf')
-    return (*_discovery_sort_key(item)[:3], recency, _deadline_key(item))
+    return (*_discovery_sort_key(item)[:3], item.get('eligibility') != 'eligible', recency, _deadline_key(item))
 
 
 def _spread_by_deadline(items, today, limit):
@@ -285,7 +287,12 @@ def select_candidates(opportunities, profile, mode, now=None):
         candidates = [item for item in prepared if _discover_candidate(item) and enough_lead(item)]
         if mode == 'discover':
             # 새 기회: 이미 관심 저장·등록한 공지는 새 기회가 아니다. 최근 수집한 공지부터.
-            candidates = sorted([item for item in _deduplicate(candidates) if not item['user_managed']], key=_newest_first_key)
+            def enough_time(item):
+                focus = focus_event(item)
+                day = focus['action_date'] if focus else None
+                return not day or (datetime.fromisoformat(day).date() - today).days >= NEW_OPPORTUNITY_MIN_LEAD_DAYS
+            candidates = sorted([item for item in _deduplicate(candidates) if not item['user_managed'] and enough_time(item)],
+                                key=_newest_first_key)
         else:
             candidates = [item for item in candidates if matches_interest(item)]
             candidates = sorted(_deduplicate(candidates), key=_discovery_sort_key)

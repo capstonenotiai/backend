@@ -18,6 +18,13 @@ from test_planner_context import PROFILE, opportunity
 from test_planner_opportunities import NOW, make_event, make_notice
 from test_planner_recommendations import fake_sdk, payload_for
 
+
+
+@pytest.fixture(autouse=True)
+def _legacy_new_opportunity_lead(monkeypatch):
+    """이 파일은 다른 규칙을 검증하며 2일 뒤 일정을 쓴다. 새 기회 5일 기준은 test_planner_mode_fit 에서 검증."""
+    from app.services import planner_context as _pc
+    monkeypatch.setattr(_pc, 'NEW_OPPORTUNITY_MIN_LEAD_DAYS', _pc.DISCOVER_MIN_LEAD_DAYS)
 
 @pytest.mark.parametrize('day,corrected', [('2030-10-11', True), ('2030-10-12', False),
                                          ('2030-10-09', False), ('2030-10-10', False)])

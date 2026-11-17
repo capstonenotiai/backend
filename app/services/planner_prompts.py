@@ -1,7 +1,7 @@
 """Recommendation prompts reconstructed from the specification and interview brief."""
 from copy import deepcopy
 
-PLANNER_PROMPT_VERSION = 'planner-v8'
+PLANNER_PROMPT_VERSION = 'planner-v9'
 
 BASE_PROMPT = """
 너는 대학생 일정 관리 서비스 NotiAI의 추천 판단 담당자다. 서버는 사실을 계산하고 너는 판단과 설명만 한다.
@@ -50,7 +50,13 @@ strong_match는 적극 추천, potential_match는 검토 추천, not_recommended
 eligibility가 needs_check/unknown이거나 enrichment_status가 low_confidence이거나
 grouping_review_required가 true이면 최대 potential_match다. 확인되지 않은 지원 자격을 충족한다고 단정하지 않는다.
 unparsed_requirements 자체로 등급을 낮추지 않는다. 각 미해석 조건은 check_reasons에 한국어 확인 문장으로 넣는다.
+단, requirements나 unparsed_requirements에 대학생 대부분이 충족할 수 없는 필수 조건이 명시돼 있으면 not_recommended로 한다.
+예: 특정 시·군·구 거주나 관내 직장·학교 소속, 특정 기관·서비스 이용자나 그 가족, 특정 국적, 청소년 전용(만 24세 이하 등),
+SNS 팔로워 수, 특정 직군·자격증 보유자. 우대 조건이거나 조건이 불분명하면 낮추지 않는다.
+not_recommended의 reason에는 어떤 필수 조건 때문에 대부분 지원하기 어려운지 쓴다.
 reason에는 추천 이유, check_reasons에는 공지에서 추가로 확인할 조건을 쓴다.
+reason은 검증된 혜택(상금·활동비·연재·교육 등)을 구체적으로 먼저 쓴다. '관심 분야와 연결'은 모든 후보에 공통이므로
+interest_match.related로 관련 기회가 확인된 경우에만 쓴다. check_reasons는 각 40자 안팎으로 짧게 쓴다.
 """.strip(),
     'focus': """
 서버가 제외 조건과 관심 연결을 확인한 후보 중 집중할 활동을 core(핵심)와 secondary(후순위)로 나눈다.
