@@ -60,6 +60,7 @@
     "student_fit"
   ],
   "detail": [
+    "date_lines",
     "dismissed",
     "events",
     "notice_id"

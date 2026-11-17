@@ -9,6 +9,7 @@ from app.models import Event, User, UserEvent, UserNotice
 from app.schemas import EventOut
 from app.timeutil import as_aware, now_local, to_local
 from app.services.review import registration_error, requires_confirmation, confirmation_reason
+from app.services.date_lines import date_lines
 from app.services.display_rules import HIDDEN_TYPES, representative, service_excluded
 from app.services.user_schedule import effective_event
 
@@ -94,8 +95,10 @@ def event_detail(db, user, event_id):
         raise HTTPException(404, '공개된 일정을 찾을 수 없습니다.')
     notice_state = db.get(UserNotice, (user.id, anchor.notice_id)) if anchor.notice_id else None
     dismissed = bool(notice_state and notice_state.dismissed)
-    return {'notice_id': anchor.notice_id, 'dismissed': dismissed,
-            'events': [to_event_out(event, state, dismissed) for event, state in group]}
+    events = [to_event_out(event, state, dismissed) for event, state in group]
+    body = anchor.notice.raw_text if anchor.notice is not None else ''
+    return {'notice_id': anchor.notice_id, 'dismissed': dismissed, 'events': events,
+            'date_lines': date_lines(body, [d for e in events for d in (e.start_date, e.end_date)])}
 
 
 def calendar_events(db, user):
