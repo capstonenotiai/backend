@@ -37,3 +37,11 @@ def test_priority_skips_expired_application_confirmation():
     active = at(opportunity(2, user_managed=True), 1)
     selected, _ = planner.select_candidates([expired, active], PROFILE, 'priority', NOW)
     assert [item['opportunity_id'] for item in selected] == ['o2']
+
+
+def test_no_interests_does_not_empty_priority_or_focus():
+    items = [at(opportunity(i), 5) for i in range(1, 4)]
+    profile = {**PROFILE, 'interests': []}
+    for mode in ('priority', 'focus'):
+        selected, _ = planner.select_candidates(items, profile, mode, NOW)
+        assert len(selected) == 3, mode

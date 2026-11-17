@@ -74,7 +74,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert all(set(output['items'][0]) == set(node['properties']) for node in branches)
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v7'
+    assert PLANNER_PROMPT_VERSION == 'planner-v8'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 
@@ -85,6 +85,9 @@ def test_priority_prompt_user_reasons_and_required_fact_references():
     assert '\"행동 가능 상태\", \"action_window\" 같은 내부 상태 표현을 사용자 문장에 쓰지 않는다.' in prompt
     assert 'reason이나 next_action에 방법·준비물·조건을 쓰면' in prompt
     assert 'fact_id를 fact_refs에 반드시 넣는다.' in prompt
+    # 다음 행동 가독성 (2026-11-17): 구체적 행동, 날짜는 화면이 표시, 해요체, 내부 표현 금지
+    assert 'next_action은 어디서 무엇을 하는지 40자 안팎' in prompt and '날짜와 시각은 화면에 따로 보이므로' in prompt
+    assert "'~해요'체로 쓴다" in prompt and "'관심 저장·등록한'" in prompt
 
 
 @pytest.mark.parametrize('mode', ['priority', 'discover', 'focus'])

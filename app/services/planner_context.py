@@ -271,11 +271,14 @@ def select_candidates(opportunities, profile, mode, now=None):
                 or not item.get('application_end_date')
                 or item['application_end_date'] >= today.isoformat()]
     grouping = []
+    # 관심분야를 하나도 고르지 않은 사용자는 관심 조건으로 거르지 않는다 (빈 추천 방지).
+    def matches_interest(item):
+        return not profile['interests'] or item['interest_match']['direct'] or item['interest_match']['related']
     if mode == 'priority':
         # 먼저 할 일: 지금 할 수 있는 일만. 마감이 지난 접수(신청 여부 확인)는 넣지 않는다.
         candidates = [item for item in prepared if not item['dismissed'] and not item['application_expired_not_done']
                       and (item['user_managed'] or item['eligibility'] != 'ineligible') and focus_event(item)
-                      and (item['user_managed'] or item['interest_match']['direct'] or item['interest_match']['related'])]
+                      and (item['user_managed'] or matches_interest(item))]
         candidates = _deduplicate(candidates)
         candidates.sort(key=priority_sort_key)
     else:
@@ -284,7 +287,7 @@ def select_candidates(opportunities, profile, mode, now=None):
             # 새 기회: 이미 관심 저장·등록한 공지는 새 기회가 아니다. 최근 수집한 공지부터.
             candidates = sorted([item for item in _deduplicate(candidates) if not item['user_managed']], key=_newest_first_key)
         else:
-            candidates = [item for item in candidates if item['interest_match']['direct'] or item['interest_match']['related']]
+            candidates = [item for item in candidates if matches_interest(item)]
             candidates = sorted(_deduplicate(candidates), key=_discovery_sort_key)
             grouping = [item for item in candidates if item['enrichment']['grouping_review_required']]
             candidates = _spread_by_deadline([item for item in candidates if not item['enrichment']['grouping_review_required']],
