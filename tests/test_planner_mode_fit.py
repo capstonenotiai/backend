@@ -67,7 +67,7 @@ def test_focus_prefers_comparable_candidates():
     for item in solo:
         item['interest_match'] = {'direct': True, 'related': False, 'related_fact_refs': []}
     left, right = attend(at(opportunity(50), 7), '13:00', '15:00'), attend(at(opportunity(51), 7), '14:00', '16:00')
-    pair = [at(opportunity(60, category='same'), 9), at(opportunity(61, category='same'), 10)]
+    pair = [at(opportunity(60, category='contest'), 9), at(opportunity(61, category='contest'), 10)]
     profile = {**PROFILE, 'interests': []}  # 관심 조건 없이 후보 순서만 본다
     selected, _ = planner.select_candidates(solo + [left, right] + pair, profile, 'focus', NOW)
     ids = {item['opportunity_id'] for item in selected}
@@ -112,3 +112,14 @@ def test_enforce_one_core_per_group():
                      'o4': ('core', None), 'o5': ('secondary', 'stronger_alternative')}
     assert items[1]['conflicts_with'] == ['o1', 'o3'] and items[3]['chosen_over'] == ['o5']
     assert planner.enforce_comparison_groups(items, groups) is False  # 이미 맞으면 고치지 않음
+
+
+def test_similar_groups_only_for_choosable_categories():
+    academic = [opportunity(i, category='academic') for i in (1, 2)]
+    scholarship = [opportunity(i, category='scholarship') for i in (3, 4)]
+    career = [opportunity(i, category='career') for i in (5, 6)]
+    groups = planner.comparison_groups(academic + scholarship + career)
+    assert groups == [{'group_id': 'g1', 'kind': 'similar', 'members': ['o5', 'o6']}]
+    # 시간이 겹치면 학사도 묶는다
+    a, b = _attend(opportunity(7, category='academic'), '13:00', '15:00'), _attend(opportunity(8, category='academic'), '14:00', '16:00')
+    assert planner.comparison_groups([a, b]) == [{'group_id': 'g1', 'kind': 'time', 'members': ['o7', 'o8']}]

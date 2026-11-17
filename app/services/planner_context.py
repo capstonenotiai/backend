@@ -240,7 +240,7 @@ def _comparison_first(items, today, limit):
     for category, ids in sorted(groups.items(), key=lambda entry: rank[entry[1][0]]):
         rest = [i for i in ids if i not in chosen]
         already = len(ids) - len(rest)
-        if not category or len(ids) < 2:
+        if category not in SIMILAR_GROUP_CATEGORIES or len(ids) < 2:
             continue
         # 이미 고른 같은 분야 후보가 있으면 1개만 더해도 비교가 된다
         need = max(0, FOCUS_SIMILAR_PER_GROUP - already)
@@ -252,6 +252,8 @@ def _comparison_first(items, today, limit):
 
 
 FOCUS_GROUP_MAX = 4
+# 비슷한 활동 묶음은 하나를 골라 집중하는 분야만 (학사·장학은 각자 처리할 일이라 묶지 않음). 시간 겹침은 분야와 무관.
+SIMILAR_GROUP_CATEGORIES = ('contest', 'activity', 'career')
 
 
 def comparison_groups(candidates):
@@ -277,7 +279,7 @@ def comparison_groups(candidates):
             used.update(members)
     by_category = {}
     for item in candidates:
-        if item['opportunity_id'] not in used and item.get('category'):
+        if item['opportunity_id'] not in used and item.get('category') in SIMILAR_GROUP_CATEGORIES:
             by_category.setdefault(item['category'], []).append(item['opportunity_id'])
     groups += [{'kind': 'similar', 'members': members[:FOCUS_GROUP_MAX]} for members in by_category.values() if len(members) >= 2]
     groups.sort(key=lambda group: order.index(group['members'][0]))
