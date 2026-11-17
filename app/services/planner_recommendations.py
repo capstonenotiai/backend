@@ -7,7 +7,7 @@ from threading import Lock
 from time import monotonic
 
 from app.config import get_settings
-from app.services import ai_limits, openai_usage
+from app.services import ai_limits, openai_usage, planner_context
 from app.services.planner import PlannerError, reasoning_options
 from app.services.planner_prompts import PLANNER_PROMPT_VERSION, instructions_for, schema_for
 from app.services.planner_validation import validate_output
@@ -105,11 +105,15 @@ def recommend(user_id, payload, server_items, now, refresh=False):
         # 캐시에 없어 실제로 OpenAI 를 부를 때만 횟수·전체 예산을 쓴다.
         ai_limits.take_recommendation(user_id)
         judgments, corrections = validate_output(payload, create_judgment(payload))
+        if payload['mode'] == 'focus' and planner_context.enforce_comparison_groups(judgments, payload.get('comparison_groups', [])):
+            corrections.append('comparison_group_enforced')
     else:
         judgments, corrections = [], []
     result = {'mode': payload['mode'], 'generated_at': now.isoformat(),
               'items': [{**item, **server_items[item['opportunity_id']]} for item in judgments],
               'needs_grouping_check': deepcopy(payload.get('needs_grouping_check', [])), 'corrections': corrections}
+    if payload['mode'] == 'focus':
+        result['comparison_groups'] = deepcopy(payload.get('comparison_groups', []))
     count = len(result['items'])
     imminent = sum(isinstance(item.get('days_until_deadline'), int)
                    and 0 <= item['days_until_deadline'] <= 3 for item in result['items'])

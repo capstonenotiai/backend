@@ -21,7 +21,7 @@ from app.services.preferences import get_or_create_preference
 from test_planner_context import opportunity, add_fact
 from test_planner_opportunities import NOW, make_event, make_notice
 
-
+
 
 @pytest.fixture(autouse=True)
 def _legacy_new_opportunity_lead(monkeypatch):
@@ -81,7 +81,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert all(set(output['items'][0]) == set(node['properties']) for node in branches)
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v10'
+    assert PLANNER_PROMPT_VERSION == 'planner-v11'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 

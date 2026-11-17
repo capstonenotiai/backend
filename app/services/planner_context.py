@@ -251,6 +251,64 @@ def _comparison_first(items, today, limit):
     return [by_id[i] for i in sorted(chosen, key=rank.get)]
 
 
+FOCUS_GROUP_MAX = 4
+
+
+def comparison_groups(candidates):
+    """집중할 것 비교 묶음 (서버가 정해 매번 같다).
+    1) 실제로 시간이 겹치는 후보끼리 이어진 묶음  2) 나머지 중 같은 분야 후보 2개 이상 (최대 FOCUS_GROUP_MAX개)."""
+    order = [item['opportunity_id'] for item in candidates]
+    parent = {i: i for i in order}
+
+    def root(value):
+        while parent[value] != value:
+            parent[value] = parent[parent[value]]
+            value = parent[value]
+        return value
+    for left, right in pairwise_conflicts(candidates):
+        parent[root(right)] = root(left)
+    components = {}
+    for value in order:
+        components.setdefault(root(value), []).append(value)
+    groups, used = [], set()
+    for members in components.values():
+        if len(members) >= 2:
+            groups.append({'kind': 'time', 'members': members[:FOCUS_GROUP_MAX]})
+            used.update(members)
+    by_category = {}
+    for item in candidates:
+        if item['opportunity_id'] not in used and item.get('category'):
+            by_category.setdefault(item['category'], []).append(item['opportunity_id'])
+    groups += [{'kind': 'similar', 'members': members[:FOCUS_GROUP_MAX]} for members in by_category.values() if len(members) >= 2]
+    groups.sort(key=lambda group: order.index(group['members'][0]))
+    return [{'group_id': f'g{index}', **group} for index, group in enumerate(groups, 1)]
+
+
+def enforce_comparison_groups(items, groups):
+    """AI 결과를 묶음에 맞춘다: 묶음마다 핵심은 정확히 하나 (AI가 고른 핵심 우선, 없으면 서버 순서 첫 번째)."""
+    by_id = {item['opportunity_id']: item for item in items}
+    changed = False
+    for group in groups:
+        members = [by_id[value] for value in group['members'] if value in by_id]
+        if len(members) < 2:
+            continue
+        winner = next((item for item in members if item['tier'] == 'core'), members[0])
+        others = [item['opportunity_id'] for item in members if item is not winner]
+        if winner['tier'] != 'core' or any(item['tier'] == 'core' for item in members if item is not winner):
+            changed = True
+        winner.update(tier='core', secondary_reason=None)
+        reason = 'schedule_conflict' if group['kind'] == 'time' else 'stronger_alternative'
+        for item in members:
+            if item is winner:
+                continue
+            item.update(tier='secondary', secondary_reason=reason, chosen_over=[])
+            if group['kind'] == 'time':
+                item['conflicts_with'] = list(dict.fromkeys([*item.get('conflicts_with', []), winner['opportunity_id']]))
+        key = 'conflicts_with' if group['kind'] == 'time' else 'chosen_over'
+        winner[key] = list(dict.fromkeys([*winner.get(key, []), *others]))
+    return changed
+
+
 def _spread_by_deadline(items, today, limit):
     """정렬 순서는 지키되 한 마감 구간(0~2일, 3~7일, 8~14일, 15일 이후)이 자리를 독차지하지 않게 한다.
     구간마다 몫(limit / 후보가 있는 구간 수)까지만 먼저 고르고, 남는 자리는 순서대로 채운다."""
@@ -403,6 +461,7 @@ def _build_context(db, user, mode, now=None):
         result['user'] = profile
     elif mode == 'focus':
         result.update(user={'interests': profile['interests']}, pairwise_conflicts=pairwise_conflicts(candidates),
+                      comparison_groups=comparison_groups(candidates),
                       needs_grouping_check=[{'opportunity_id': item['opportunity_id'], 'title': item['title'],
                                              'reason': item['enrichment']['grouping_review_reason']}
                                             for item in grouping])

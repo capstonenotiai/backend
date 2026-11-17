@@ -83,3 +83,32 @@ def test_focus_server_items_carry_category_and_benefit(db, monkeypatch):
     monkeypatch.setattr(planner, 'all_opportunity_facts', lambda *args: [item])
     _, server_items = planner.build_recommendation_context(db, get_or_create_dev_user(db), 'focus', NOW)
     assert server_items['o1']['category'] == 'career' and server_items['o1']['benefit'] == '상금 100만원'
+
+
+def _attend(item, start, end, day='2030-10-15'):
+    item['events'][0].update(action_type='attend', start_date=day, end_date=day, start_time=start, end_time=end,
+                             timezone='Asia/Seoul', title='일정', detail='', source_url='https://e', location='')
+    return item
+
+
+def test_comparison_groups_are_deterministic():
+    a, b, c = _attend(opportunity(1), '13:00', '15:00'), _attend(opportunity(2), '14:00', '16:00'), _attend(opportunity(3), '15:30', '17:00')
+    x, y = opportunity(4, category='contest'), opportunity(5, category='contest')
+    solo = opportunity(6, category='academic')
+    items = [a, b, c, x, y, solo]
+    groups = planner.comparison_groups(items)
+    assert groups == [{'group_id': 'g1', 'kind': 'time', 'members': ['o1', 'o2', 'o3']},
+                      {'group_id': 'g2', 'kind': 'similar', 'members': ['o4', 'o5']}]
+    assert planner.comparison_groups(items) == groups  # 같은 입력이면 같은 묶음
+
+
+def test_enforce_one_core_per_group():
+    items = [{'opportunity_id': f'o{i}', 'tier': tier, 'secondary_reason': None if tier == 'core' else 'information_uncertain',
+              'chosen_over': [], 'conflicts_with': []} for i, tier in [(1, 'secondary'), (2, 'core'), (3, 'core'), (4, 'secondary'), (5, 'secondary')]]
+    groups = [{'group_id': 'g1', 'kind': 'time', 'members': ['o1', 'o2', 'o3']}, {'group_id': 'g2', 'kind': 'similar', 'members': ['o4', 'o5']}]
+    assert planner.enforce_comparison_groups(items, groups) is True
+    tiers = {item['opportunity_id']: (item['tier'], item['secondary_reason']) for item in items}
+    assert tiers == {'o1': ('secondary', 'schedule_conflict'), 'o2': ('core', None), 'o3': ('secondary', 'schedule_conflict'),
+                     'o4': ('core', None), 'o5': ('secondary', 'stronger_alternative')}
+    assert items[1]['conflicts_with'] == ['o1', 'o3'] and items[3]['chosen_over'] == ['o5']
+    assert planner.enforce_comparison_groups(items, groups) is False  # 이미 맞으면 고치지 않음

@@ -240,6 +240,7 @@
     "verify_target"
   ],
   "recommendations focus": [
+    "comparison_groups",
     "corrections",
     "generated_at",
     "items",
