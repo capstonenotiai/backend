@@ -249,7 +249,10 @@
   ],
   "recommendation item focus": [
     "action_date",
+    "benefit",
+    "category",
     "chosen_over",
+    "conflict_times",
     "conflicts_with",
     "days_until_deadline",
     "eligibility",

@@ -55,3 +55,31 @@ def test_discover_needs_five_days_and_confirmed_eligibility_first():
     selected, _ = planner.select_candidates([near, far_unsure, far_ok], PROFILE, 'discover', NOW)
     assert [item['eligibility'] for item in selected] == ['eligible', 'needs_check']
     assert [item['opportunity_id'] for item in selected] == ['o3', 'o2']  # 4일 남은 o1 은 제외
+
+
+def test_focus_prefers_comparable_candidates():
+    # 순위가 낮아도 시간이 겹치는 쌍과 같은 분야 묶음을 먼저 고른다.
+    def attend(item, start, end):
+        item['events'][0].update(action_type='attend', start_date='2030-10-15', end_date='2030-10-15', start_time=start,
+                                 end_time=end, timezone='Asia/Seoul', title='일정', detail='', source_url='https://e', location='')
+        return item
+    solo = [at(opportunity(i, category=f'c{i}'), 5 + i) for i in range(1, 15)]  # 각자 다른 분야, 겹침 없음
+    for item in solo:
+        item['interest_match'] = {'direct': True, 'related': False, 'related_fact_refs': []}
+    left, right = attend(at(opportunity(50), 7), '13:00', '15:00'), attend(at(opportunity(51), 7), '14:00', '16:00')
+    pair = [at(opportunity(60, category='same'), 9), at(opportunity(61, category='same'), 10)]
+    profile = {**PROFILE, 'interests': []}  # 관심 조건 없이 후보 순서만 본다
+    selected, _ = planner.select_candidates(solo + [left, right] + pair, profile, 'focus', NOW)
+    ids = {item['opportunity_id'] for item in selected}
+    assert {'o50', 'o51', 'o60', 'o61'} <= ids and len(ids) == planner.CANDIDATE_LIMITS['focus']
+
+
+def test_focus_server_items_carry_category_and_benefit(db, monkeypatch):
+    from app.deps import get_or_create_dev_user
+    from test_planner_context import add_fact
+    item = at(opportunity(1, source_url='https://example.com/n'), 6)
+    item['events'][0].update(start_date=item['events'][0]['action_date'], end_date=item['events'][0]['action_date'], start_time='', end_time='')
+    add_fact(item, 'benefit', '상금 100만원')
+    monkeypatch.setattr(planner, 'all_opportunity_facts', lambda *args: [item])
+    _, server_items = planner.build_recommendation_context(db, get_or_create_dev_user(db), 'focus', NOW)
+    assert server_items['o1']['category'] == 'career' and server_items['o1']['benefit'] == '상금 100만원'

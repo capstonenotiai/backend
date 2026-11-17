@@ -81,7 +81,7 @@ def test_valid_outputs_and_strict_schemas(mode):
     assert all(set(output['items'][0]) == set(node['properties']) for node in branches)
     prompt = instructions_for(mode)
     assert '한국어' in prompt and 'career, needs_check' in prompt and 'fact_id' in prompt
-    assert PLANNER_PROMPT_VERSION == 'planner-v9'
+    assert PLANNER_PROMPT_VERSION == 'planner-v10'
     schema['properties'].clear()
     assert schema_for(mode)['properties']
 

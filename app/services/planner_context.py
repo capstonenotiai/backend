@@ -2,7 +2,7 @@
 import re
 from datetime import datetime
 
-from app.services.planner_facts import SEOUL, all_opportunity_facts, pairwise_conflicts
+from app.services.planner_facts import SEOUL, all_opportunity_facts, conflict_slots, pairwise_conflicts
 from app.services.preferences import get_or_create_preference
 
 DISCOVER_MIN_LEAD_DAYS = 2
@@ -10,6 +10,9 @@ DISCOVER_MIN_LEAD_DAYS = 2
 NEW_OPPORTUNITY_MIN_LEAD_DAYS = 5
 # 집중할 것: 마감 임박 공지만 몰리지 않도록 마감 구간별로 번갈아 고른다 (상한 일수, 마지막은 그 이후 전부)
 FOCUS_DEADLINE_BUCKETS = (2, 7, 14)
+# 집중할 것: 비교할 짝이 있는 후보를 먼저 (시간 겹침 쌍 → 같은 분야 묶음). 묶음당 최대 개수
+FOCUS_CONFLICT_SLOTS = 6
+FOCUS_SIMILAR_PER_GROUP = 3
 CANDIDATE_LIMITS = {'priority': 15, 'discover': 20, 'focus': 12}
 URGENCY_ORDER = {'urgent': 0, 'soon': 1, 'upcoming': 2, 'later': 3, 'none': 4}
 WINDOW_ORDER = {'open': 0, 'not_open': 1, 'unknown': 2}
@@ -211,6 +214,43 @@ def _newest_first_key(item):
     return (*_discovery_sort_key(item)[:3], item.get('eligibility') != 'eligible', recency, _deadline_key(item))
 
 
+def _comparison_first(items, today, limit):
+    """집중할 것: 비교할 수 있는 후보부터 고른다 (순서는 기존 정렬을 따른다).
+    1) 실제로 시간이 겹치는 쌍 (최대 FOCUS_CONFLICT_SLOTS 자리)
+    2) 같은 분야 후보가 2개 이상인 묶음 (묶음당 최대 FOCUS_SIMILAR_PER_GROUP 개)
+    3) 남는 자리는 마감 구간 분산 규칙으로 채운다."""
+    rank = {item['opportunity_id']: index for index, item in enumerate(items)}
+    by_id = {item['opportunity_id']: item for item in items}
+    chosen = []
+
+    def take(ids):
+        new = [i for i in ids if i not in chosen]
+        if new and len(chosen) + len(new) <= limit:
+            chosen.extend(new)
+            return True
+        return False
+
+    for left, right in sorted(pairwise_conflicts(items), key=lambda pair: (rank[pair[0]], rank[pair[1]])):
+        if len(chosen) >= FOCUS_CONFLICT_SLOTS:
+            break
+        take([left, right])
+    groups = {}
+    for item in items:
+        groups.setdefault(item.get('category') or '', []).append(item['opportunity_id'])
+    for category, ids in sorted(groups.items(), key=lambda entry: rank[entry[1][0]]):
+        rest = [i for i in ids if i not in chosen]
+        already = len(ids) - len(rest)
+        if not category or len(ids) < 2:
+            continue
+        # 이미 고른 같은 분야 후보가 있으면 1개만 더해도 비교가 된다
+        need = max(0, FOCUS_SIMILAR_PER_GROUP - already)
+        if rest[:need] and (already or len(rest[:need]) >= 2):
+            take(rest[:need])
+    remaining = [item for item in items if item['opportunity_id'] not in chosen]
+    chosen.extend(item['opportunity_id'] for item in _spread_by_deadline(remaining, today, limit - len(chosen)))
+    return [by_id[i] for i in sorted(chosen, key=rank.get)]
+
+
 def _spread_by_deadline(items, today, limit):
     """정렬 순서는 지키되 한 마감 구간(0~2일, 3~7일, 8~14일, 15일 이후)이 자리를 독차지하지 않게 한다.
     구간마다 몫(limit / 후보가 있는 구간 수)까지만 먼저 고르고, 남는 자리는 순서대로 채운다."""
@@ -297,8 +337,8 @@ def select_candidates(opportunities, profile, mode, now=None):
             candidates = [item for item in candidates if matches_interest(item)]
             candidates = sorted(_deduplicate(candidates), key=_discovery_sort_key)
             grouping = [item for item in candidates if item['enrichment']['grouping_review_required']]
-            candidates = _spread_by_deadline([item for item in candidates if not item['enrichment']['grouping_review_required']],
-                                             today, CANDIDATE_LIMITS['focus'])
+            candidates = _comparison_first([item for item in candidates if not item['enrichment']['grouping_review_required']],
+                                           today, CANDIDATE_LIMITS['focus'])
     return candidates[:CANDIDATE_LIMITS[mode]], grouping
 
 
@@ -376,6 +416,7 @@ def build_payload(db, user, mode, now=None):
 def build_recommendation_context(db, user, mode, now=None):
     payload, candidates, now = _build_context(db, user, mode, now)
     server_items = {}
+    slots = conflict_slots(candidates) if mode == 'focus' else {}
     for candidate, prompt_item in zip(candidates, payload['opportunities']):
         focus = focus_event(candidate)
         day = focus['action_date'] if focus else None
@@ -389,6 +430,12 @@ def build_recommendation_context(db, user, mode, now=None):
             'priority_context': candidate['priority_context'],
             'next_step_type': candidate['priority_context']['next_step_type'],
         }
+        if mode == 'focus':
+            # 비교표용: 분야와 검증된 혜택 첫 항목 (서버 사실, AI가 바꾸지 않음)
+            benefit = next((fact['value'] for fact in validated_facts(candidate)
+                            if fact['type'] == 'benefit' and isinstance(fact['value'], str)), None)
+            server_items[candidate['opportunity_id']].update(category=candidate.get('category'), benefit=benefit,
+                                                            conflict_times=slots.get(candidate['opportunity_id'], {}))
         if mode == 'priority':
             prompt_item.update(urgency=focus['urgency'] if focus else 'none',
                               action_date=day, days_until_action=server_items[candidate['opportunity_id']]['days_until_deadline'],

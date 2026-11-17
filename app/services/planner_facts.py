@@ -194,9 +194,30 @@ def all_opportunity_facts(db, user, now=None):
     return [opportunity_facts(db, user, notice, now, context) for notice in notices]
 
 
-def pairwise_conflicts(opportunities):
+def _single_day(event):
+    # 여러 날 이어지는 행사(박람회 주간 등)는 다른 날 갈 수 있어 '시간 겹침'으로 보지 않는다.
+    return not event.get('end_date') or not event.get('start_date') or event.get('end_date') == event.get('start_date')
+
+
+def conflict_slots(opportunities):
+    """{활동 ID: {상대 활동 ID: [시작, 끝]}} — 상대와 실제로 겹치는 이 활동의 하루짜리 참석 일정 (ISO, 서울 시각)."""
     intervals = [[schedule_interval(SimpleNamespace(**event)) for event in item['events']
-                  if event['action_type'] == 'attend'] for item in opportunities]
+                  if event['action_type'] == 'attend' and _single_day(event)] for item in opportunities]
+    slots = {}
+    for index, left in enumerate(opportunities):
+        for other_index in range(index + 1, len(opportunities)):
+            right = opportunities[other_index]
+            hit = next(((a, b) for a in intervals[index] for b in intervals[other_index] if a and b and _overlaps(a, b)), None)
+            if hit:
+                slots.setdefault(left['opportunity_id'], {})[right['opportunity_id']] = [value.isoformat() for value in hit[0]]
+                slots.setdefault(right['opportunity_id'], {})[left['opportunity_id']] = [value.isoformat() for value in hit[1]]
+    return slots
+
+
+def pairwise_conflicts(opportunities):
+    """하루짜리 참석 일정끼리 실제로 겹치는 활동 쌍."""
+    intervals = [[schedule_interval(SimpleNamespace(**event)) for event in item['events']
+                  if event['action_type'] == 'attend' and _single_day(event)] for item in opportunities]
     pairs = []
     for index, left in enumerate(opportunities):
         for other_index in range(index + 1, len(opportunities)):

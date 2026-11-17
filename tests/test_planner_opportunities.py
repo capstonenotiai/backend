@@ -296,3 +296,25 @@ def test_profile_migration_existing_columns_downgrade_and_row_preservation(tmp_p
         assert 'major' not in {c['name'] for c in inspect(conn).get_columns('preferences')}
         run_migrations(conn)
         assert conn.execute(text('SELECT major FROM preferences')).scalar() == ''
+
+
+def test_pairwise_ignores_multi_day_events(db):
+    user = get_or_create_dev_user(db)
+    week, session = make_notice(db), make_notice(db)
+    make_event(db, week, start_date='2030-10-06', end_date='2030-10-10', start_time='', end_time='')
+    make_event(db, session, start_date='2030-10-08', end_date='2030-10-08')
+    db.commit()
+    assert pairwise_conflicts([opportunity_facts(db, user, n, NOW) for n in (week, session)]) == []
+
+
+def test_conflict_slots_report_the_overlapping_session(db):
+    from app.services.planner_facts import conflict_slots
+    user = get_or_create_dev_user(db)
+    a, b = make_notice(db), make_notice(db)
+    make_event(db, a, event_type='application', start_date='2030-10-01', end_date='2030-10-20', start_time='', end_time='')
+    make_event(db, a, start_date='2030-10-08', end_date='2030-10-08', start_time='13:00', end_time='15:00')
+    make_event(db, b, start_date='2030-10-08', end_date='2030-10-08', start_time='14:00', end_time='16:00')
+    db.commit()
+    slots = conflict_slots([opportunity_facts(db, user, n, NOW) for n in (a, b)])
+    assert slots[f'o{a.id}'][f'o{b.id}'][0].startswith('2030-10-08T13:00')
+    assert slots[f'o{b.id}'][f'o{a.id}'][0].startswith('2030-10-08T14:00')

@@ -1,7 +1,7 @@
 """Recommendation prompts reconstructed from the specification and interview brief."""
 from copy import deepcopy
 
-PLANNER_PROMPT_VERSION = 'planner-v9'
+PLANNER_PROMPT_VERSION = 'planner-v10'
 
 BASE_PROMPT = """
 너는 대학생 일정 관리 서비스 NotiAI의 추천 판단 담당자다. 서버는 사실을 계산하고 너는 판단과 설명만 한다.
@@ -74,6 +74,11 @@ information_uncertain: 자격·보강 정보 등 확인할 정보가 부족해 �
 단순히 후순위라는 이유로 information_uncertain을 고르지 않는다. 확인된 정보가 충분하고 비교할 core도 없다면 core가 될 수 있다.
 secondary에 conflicts_with가 있으면 secondary_reason은 schedule_conflict다.
 출력 전 모든 secondary의 사유와 core의 chosen_over 연결을 함께 확인한다. 검증되지 않은 날짜나 충돌을 만들어내지 않는다.
+화면은 core 하나와 그 core의 chosen_over·conflicts_with 상대를 한 비교 묶음으로 보여준다.
+같은 category이고 목적·형태가 비슷한 후보가 여러 개면 그중 하나를 core로 고르고 나머지는 stronger_alternative로 그 core의 chosen_over에 넣는다.
+pairwise_conflicts의 두 후보는 하나를 core로, 다른 하나를 schedule_conflict secondary로 하고 core의 conflicts_with에도 상대를 넣는다.
+비교 묶음의 core reason에는 무엇보다 왜 이것을 골랐는지 상대 활동 이름을 넣어 비교해서 쓴다(예: '박람회보다 실무 멘토링이 있어요').
+'관심 분야와 연결'은 모든 후보에 공통이므로 쓰지 않는다. 비교할 상대가 없는 후보는 정보가 충분하면 core로 둔다.
 """.strip(),
 }
 
