@@ -1,0 +1,375 @@
+{
+  "event": [
+    "action_status",
+    "ai_extracted",
+    "attendance_mode",
+    "bookmarked",
+    "can_register",
+    "category",
+    "collected_at",
+    "detail",
+    "dismissed",
+    "end_date",
+    "end_time",
+    "event_type",
+    "id",
+    "is_new",
+    "location",
+    "notice_id",
+    "registered",
+    "registration_reason",
+    "review_reason",
+    "review_required",
+    "review_status",
+    "revision",
+    "schedule_status",
+    "source",
+    "source_url",
+    "start_date",
+    "start_time",
+    "sync_status",
+    "timezone",
+    "title",
+    "user_modified"
+  ],
+  "internal opportunity": [
+    "application_end_date",
+    "application_expired_not_done",
+    "calendar_conflict",
+    "category",
+    "collected_at",
+    "dismissed",
+    "enrichment",
+    "events",
+    "opportunity_id",
+    "published_at",
+    "source_url",
+    "title",
+    "user_managed",
+    "user_registered"
+  ],
+  "internal opportunity enrichment": [
+    "audience",
+    "enrichment_status",
+    "events",
+    "facts",
+    "grouping_review_reason",
+    "grouping_review_required",
+    "is_mandatory",
+    "low_confidence_reasons",
+    "notice_kind",
+    "student_fit"
+  ],
+  "detail": [
+    "date_lines",
+    "dismissed",
+    "events",
+    "notice_id"
+  ],
+  "GET /api/user": [
+    "email",
+    "enrollment_status",
+    "grade",
+    "is_admin",
+    "major",
+    "name",
+    "onboarding_done"
+  ],
+  "GET /api/user/preferences": [
+    "ai_mode",
+    "auto_mode_recommend",
+    "enabled_sources",
+    "interests",
+    "notifications"
+  ],
+  "GET preferences nested": {
+    "ai_mode": null,
+    "auto_mode_recommend": null,
+    "enabled_sources": {
+      "cbnu": null,
+      "contestkorea": null,
+      "wevity": null
+    },
+    "interests": [
+      null
+    ],
+    "notifications": {
+      "d1": null,
+      "d3": null,
+      "email": null
+    }
+  },
+  "PUT /api/user/preferences": [
+    "ai_mode",
+    "auto_mode_recommend",
+    "enabled_sources",
+    "interests",
+    "notifications"
+  ],
+  "PUT preferences nested": {
+    "ai_mode": null,
+    "auto_mode_recommend": null,
+    "enabled_sources": {
+      "cbnu": null,
+      "contestkorea": null,
+      "wevity": null
+    },
+    "interests": [
+      null
+    ],
+    "notifications": {
+      "d1": null,
+      "d3": null,
+      "email": null
+    }
+  },
+  "PUT /api/user/profile": [
+    "email",
+    "enrollment_status",
+    "grade",
+    "is_admin",
+    "major",
+    "name",
+    "onboarding_done"
+  ],
+  "PUT /api/user/onboarding": [
+    "email",
+    "enrollment_status",
+    "grade",
+    "is_admin",
+    "major",
+    "name",
+    "onboarding_done"
+  ],
+  "GET /api/notifications": [
+    "items",
+    "next_before"
+  ],
+  "notification item": [
+    "created_at",
+    "event_id",
+    "id",
+    "kind",
+    "message",
+    "read",
+    "target_date",
+    "title"
+  ],
+  "GET /api/notifications/unread-count": [
+    "count"
+  ],
+  "GET /api/dashboard": [
+    "collectedChangeLabel",
+    "collectedToday",
+    "collectionFinishedAt",
+    "greeting",
+    "lastCollectedAt",
+    "referenceTimeLabel",
+    "sources"
+  ],
+  "dashboard source": [
+    "count",
+    "progress",
+    "source",
+    "status"
+  ],
+  "recommendations priority": [
+    "corrections",
+    "generated_at",
+    "items",
+    "mode",
+    "needs_grouping_check",
+    "summary"
+  ],
+  "recommendation item priority": [
+    "action_date",
+    "days_until_deadline",
+    "eligibility",
+    "end_date",
+    "end_time",
+    "fact_refs",
+    "focus_event_id",
+    "interest_match",
+    "next_action",
+    "next_step_label",
+    "next_step_type",
+    "opportunity_id",
+    "priority_context",
+    "reason",
+    "source_url",
+    "start_date",
+    "start_time",
+    "title"
+  ],
+  "priority_context priority": [
+    "focus_event_id",
+    "next_step_type",
+    "verify_target"
+  ],
+  "recommendations discover": [
+    "corrections",
+    "generated_at",
+    "items",
+    "mode",
+    "needs_grouping_check",
+    "summary"
+  ],
+  "recommendation item discover": [
+    "action_date",
+    "check_reasons",
+    "days_until_deadline",
+    "eligibility",
+    "end_date",
+    "end_time",
+    "fact_refs",
+    "focus_event_id",
+    "grade",
+    "interest_match",
+    "next_step_type",
+    "opportunity_id",
+    "priority_context",
+    "reason",
+    "source_url",
+    "start_date",
+    "start_time",
+    "title"
+  ],
+  "priority_context discover": [
+    "focus_event_id",
+    "next_step_type",
+    "verify_target"
+  ],
+  "recommendations focus": [
+    "comparison_groups",
+    "corrections",
+    "generated_at",
+    "items",
+    "mode",
+    "needs_grouping_check",
+    "summary"
+  ],
+  "recommendation item focus": [
+    "action_date",
+    "benefit",
+    "category",
+    "chosen_over",
+    "conflict_times",
+    "conflicts_with",
+    "days_until_deadline",
+    "eligibility",
+    "end_date",
+    "end_time",
+    "fact_refs",
+    "focus_event_id",
+    "interest_match",
+    "next_step_type",
+    "opportunity_id",
+    "priority_context",
+    "reason",
+    "secondary_reason",
+    "source_url",
+    "start_date",
+    "start_time",
+    "tier",
+    "title"
+  ],
+  "priority_context focus": [
+    "focus_event_id",
+    "next_step_type",
+    "verify_target"
+  ],
+  "needs_grouping_check item": [
+    "opportunity_id",
+    "reason",
+    "title"
+  ],
+  "POST /api/feedback": [
+    "created_at",
+    "id"
+  ],
+  "report item": [
+    "created_at",
+    "event_id",
+    "id",
+    "memo",
+    "reason",
+    "status",
+    "title"
+  ],
+  "GET /api/admin/feedback": [
+    "counts",
+    "items",
+    "total"
+  ],
+  "admin feedback item": [
+    "created_at",
+    "id",
+    "message",
+    "reply_email",
+    "type",
+    "user_id"
+  ],
+  "GET /api/admin/notices/counts": [
+    "all",
+    "approved",
+    "extracted",
+    "failed",
+    "needs_review",
+    "no_events",
+    "pending",
+    "processing",
+    "rejected",
+    "reported",
+    "retry_pending"
+  ],
+  "GET /api/admin/notices": [
+    "items",
+    "total"
+  ],
+  "admin notice item": [
+    "crawled_at",
+    "error",
+    "id",
+    "open_report_count",
+    "published_at",
+    "reason",
+    "revision",
+    "source",
+    "state",
+    "title"
+  ],
+  "GET /api/admin/notices/{notice_id}": [
+    "body",
+    "error",
+    "events",
+    "history",
+    "id",
+    "model_output",
+    "reports",
+    "revision",
+    "source_url",
+    "state",
+    "title"
+  ],
+  "admin report item": [
+    "created_at",
+    "event_id",
+    "id",
+    "memo",
+    "reason",
+    "resolved_at"
+  ],
+  "admin feedback counts": [
+    "all",
+    "inconvenience",
+    "other",
+    "praise",
+    "suggestion"
+  ],
+  "POST /api/admin/notices/{notice_id}/review": [
+    "id",
+    "resolved_reports",
+    "revision",
+    "state"
+  ]
+}

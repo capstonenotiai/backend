@@ -13,6 +13,8 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from crawler.base import soup, clean_text
+from app.services.notice_metadata import publication_from_metadata, iso_publication
+from app.services.category import wevity_board
 
 try:
     from curl_cffi import requests as cffi_requests
@@ -74,17 +76,33 @@ def parse_detail_page(ix: int) -> dict | None:
 
     # 메타 정보
     meta = {}
+    # 현재 상세 페이지: <ul class="cd-info-list"><li><span class="tit">접수기간</span> 값 <span class="cil-dday">D-n</span></li>
+    for item in bs.select("ul.cd-info-list li"):
+        key_el = item.select_one("span.tit")
+        key = key_el.get_text(strip=True) if key_el else ""
+        if not key:
+            continue
+        value = item.get_text(" ", strip=True).removeprefix(key).strip()
+        dday = item.select_one(".cil-dday")
+        if dday:
+            value = value.removesuffix(dday.get_text(strip=True)).strip()
+        if value:
+            meta[key] = value
     content_el = bs.select_one(".content")
-    if content_el:
+    if content_el and not meta:  # 예전 레이아웃 (한 줄에 "키: 값")
         raw = content_el.get_text(separator="\n")
         for line in raw.split("\n"):
             m = re.match(
-                r"^(분야|응모대상|주최|주관|기간|접수기간|행사기간|장소|행사장소|시상내역|후원)\s*[:\s]\s*(.+)",
+                r"^(분야|응모대상|주최|주관|기간|접수기간|행사기간|장소|행사장소|시상내역|후원|작성일|등록일|게시일)\s*[:\s]\s*(.+)",
                 line.strip(),
             )
             if m:
                 meta[m.group(1)] = m.group(2).strip()
     result["meta"] = meta
+    result['board'] = wevity_board(meta) or 'contest'
+    published = bs.select_one('meta[property="article:published_time"], meta[itemprop="datePublished"], time[itemprop="datePublished"][datetime], .published time[datetime]')
+    result['published_at'] = publication_from_metadata(meta) or (
+        iso_publication(published.get('content') or published.get('datetime')) if published else None)
 
     # 본문
     for tag in bs.select("script, style, .ad, .banner, nav, footer, .sns-wrap"):

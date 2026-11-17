@@ -51,6 +51,8 @@ def google_callback(
         log.error("google login failed: %s", error)
         return RedirectResponse(f"{frontend}/?login=failed")
 
+    if info.get('email_verified') is not True or not info.get('sub') or not info.get('email'):
+        return RedirectResponse(f"{frontend}/?login=failed")
     user = db.scalar(select(User).where(User.google_sub == info["sub"]))
     if not user:
         user = User(google_sub=info["sub"], email=info.get("email", ""), name=info.get("name", ""))

@@ -26,6 +26,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(100))
     # Google Calendar 호출용. DB 에는 암호화되어 저장됨 (app/crypto.py)
     google_refresh_token: Mapped[str | None] = mapped_column(EncryptedText)
+    onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     preference: Mapped["Preference"] = relationship(back_populates="user", uselist=False)
@@ -35,7 +36,10 @@ class Preference(Base):
     __tablename__ = "preferences"
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    ai_mode: Mapped[str] = mapped_column(String(32), default="study")
+    ai_mode: Mapped[str] = mapped_column(String(32), default="priority")
+    major: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    grade: Mapped[int | None] = mapped_column(Integer)
+    enrollment_status: Mapped[str] = mapped_column(String(16), default="unknown", server_default="unknown")
     interests: Mapped[list] = mapped_column(JSON, default=list)
     enabled_sources: Mapped[dict] = mapped_column(JSON, default=dict)
     notifications: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -57,8 +61,36 @@ class Notice(Base):
     title_raw: Mapped[str] = mapped_column(Text)
     raw_text: Mapped[str] = mapped_column(Text, default="")
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    published_at: Mapped[str | None] = mapped_column(String(10))
+    source_metadata: Mapped[dict | None] = mapped_column(JSON)
+    application_end_date: Mapped[str | None] = mapped_column(String(10))
+    extraction_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # 재시도 대기 중이면 이 시각(UTC) 이후에 다시 추출
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    event: Mapped["Event | None"] = relationship(back_populates="notice", uselist=False)
+    extraction_state: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
+    extraction_result: Mapped[dict | None] = mapped_column(JSON)
+    extraction_error: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    events: Mapped[list["Event"]] = relationship(back_populates="notice")
+
+
+class NoticeEnrichment(Base):
+    __tablename__ = "notice_enrichments"
+
+    notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), primary_key=True)
+    state: Mapped[str] = mapped_column(String(24), default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    raw: Mapped[dict | None] = mapped_column(JSON)
+    facts: Mapped[dict] = mapped_column(JSON, default=dict)
+    notice_kind: Mapped[str] = mapped_column(String(16), default="normal", server_default="normal")
+    grouping_review_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    grouping_review_reason: Mapped[str] = mapped_column(Text, default="")  # MySQL: TEXT 에 DEFAULT 불가
+    enrichment_status: Mapped[str] = mapped_column(String(24), default="ok", server_default="ok")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class Event(Base):
@@ -67,7 +99,7 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    notice_id: Mapped[int | None] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), unique=True)
+    notice_id: Mapped[int | None] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), index=True)
     source: Mapped[str] = mapped_column(String(32), index=True)
     source_url: Mapped[str] = mapped_column(String(1000), default="")
 
@@ -78,13 +110,23 @@ class Event(Base):
     location: Mapped[str] = mapped_column(String(255), default="")
     detail: Mapped[str] = mapped_column(Text, default="")
 
+    event_type: Mapped[str] = mapped_column(String(24), default="event", server_default="event")
+    start_time: Mapped[str] = mapped_column(String(5), default="", server_default="")
+    end_time: Mapped[str] = mapped_column(String(5), default="", server_default="")
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Seoul", server_default="Asia/Seoul")
+    attendance_mode: Mapped[str] = mapped_column(String(24), default="unknown", server_default="unknown")
+    schedule_status: Mapped[str] = mapped_column(String(24), default="confirmed", server_default="confirmed")
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    extraction_metadata: Mapped[dict | None] = mapped_column(JSON)
+    ai_extracted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
     category: Mapped[str | None] = mapped_column(String(32))
     review_status: Mapped[str] = mapped_column(String(16), default="needs_review")  # auto | needs_review
     review_reason: Mapped[str | None] = mapped_column(Text)
     extractor: Mapped[str | None] = mapped_column(String(32))
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    notice: Mapped[Notice | None] = relationship(back_populates="event")
+    notice: Mapped[Notice | None] = relationship(back_populates="events")
 
 
 class UserEvent(Base):
@@ -99,7 +141,88 @@ class UserEvent(Base):
     registered: Mapped[bool] = mapped_column(Boolean, default=False)
     google_event_id: Mapped[str | None] = mapped_column(String(255))
     bookmarked: Mapped[bool] = mapped_column(Boolean, default=False)
+    action_status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    overrides: Mapped[dict | None] = mapped_column(JSON)
+    synced_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    sync_status: Mapped[str] = mapped_column(String(24), default="none", server_default="none")
+    sync_error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserNotice(Base):
+    __tablename__ = "user_notices"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id", ondelete="CASCADE"), primary_key=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+
+class Notification(Base):
+    """서비스 안 알림함 + 이메일 발송 기록. 같은 일정·종류·대상 날짜는 한 번만 만든다."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("user_id", "event_id", "kind", "target_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(24))  # deadline_d3 | deadline_d1 | event_d3 | event_d1
+    target_date: Mapped[str] = mapped_column(String(10))  # 알림 기준 날짜 (마감일 / 시작일)
+    title: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | sent | failed | skipped
+    email_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_error: Mapped[str | None] = mapped_column(Text)
+
+
+class OpenAIUsage(Base):
+    """OpenAI 호출 1회의 토큰 수 (app/services/openai_usage.py)"""
+
+    __tablename__ = "openai_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24))  # enrichment | recommendation | chat
+    model: Mapped[str] = mapped_column(String(64))
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class EventReport(Base):
+    __tablename__ = "event_reports"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(24))
+    memo: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class ReviewLog(Base):
+    __tablename__ = "review_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    notice_id: Mapped[int] = mapped_column(ForeignKey("notices.id"), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(24))
+    reason: Mapped[str] = mapped_column(Text)
+    before: Mapped[list] = mapped_column(JSON)
+    after: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ServiceFeedback(Base):
+    __tablename__ = "service_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    type: Mapped[str] = mapped_column(String(16))
+    message: Mapped[str] = mapped_column(Text)
+    reply_email: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class CrawlRun(Base):

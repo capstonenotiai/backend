@@ -64,7 +64,7 @@ def get_summary(db: Session) -> DashboardSummary:
     return DashboardSummary(
         collectedToday=total_today,
         collectedChangeLabel=f"{diff:+d} vs 어제",
-        lastCollectedAt=_hhmm(last_run.started_at if last_run else None),
+        lastCollectedAt=to_local(last_run.started_at).isoformat(timespec="seconds") if last_run else _hhmm(None),
         collectionFinishedAt=_hhmm(last_finished.finished_at if last_finished else None),
         referenceTimeLabel=f"현재 {ampm} {now.hour % 12 or 12:02d}:{now.minute:02d} 기준",
         greeting=_greeting(now.hour),

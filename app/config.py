@@ -6,6 +6,7 @@ from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 
 
 class Settings(BaseSettings):
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     # true: 로그인 안 한 요청도 '개발용 사용자'로 처리 (배포 시 false)
     dev_login: bool = True
+    # Actual signed-in Google accounts only. DEV_LOGIN never grants admin access.
+    admin_emails: str = ""
     # 프론트/백엔드 도메인이 다른 https 배포에서 true (SameSite=None; Secure)
     cookie_secure: bool = False
 
@@ -34,11 +37,31 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-6-luna"
     openai_max_output_tokens: int = 800
+    planner_model: str = ""
+    planner_max_output_tokens: int = 8000
+    # OpenAI reasoning effort (none|low|medium|high, 비우면 모델 기본값). 2026-11-17 측정: 추천 기본 27초 → low 9초, 결과 동일
+    planner_reasoning_effort: str = "low"
+    chat_reasoning_effort: str = "low"
+    # AI 사용 제한 (app/services/ai_limits.py). 0 이면 해당 제한을 끈다.
+    chat_per_minute: int = 6
+    chat_per_day: int = 60
+    recommend_per_day: int = 30
+    ai_daily_token_budget: int = 5_000_000
+    enrich_model: str = ""
+    enrich_max_output_tokens: int = 4000
+    enrich_cron: str = "*/30 * * * *"
 
     # 일정 추출기: stub | gpt | model_api (app/services/extractor.py)
     extractor: str = "stub"
     extract_model: str = "gpt-4o-mini"
     model_api_url: str = ""
+    # Shared X-Model-Token; keep only in the local environment/.env, never in logs.
+    model_api_token: str = ""
+    extraction_max_attempts: int = 3
+    # 비우면 MODEL_API_URL 의 /extract 를 /health 로 바꿔 사용
+    model_health_url: str = ""
+    # 수집과 별도로 추출 대기열을 처리하는 주기 (CRAWL_ENABLED=true 일 때)
+    extract_cron: str = "*/10 * * * *"
     # capstonenotiai/model repo 로컬 경로 — EXTRACTOR=gpt 일 때 SYSTEM_PROMPT/postprocess 재사용 (크롤러와는 무관)
     model_repo_path: str = ""
 
@@ -47,12 +70,34 @@ class Settings(BaseSettings):
     crawl_cron: str = "0 9 * * *"
     crawl_max_pages: int = 2
 
+    # 알림 (NOTIFY_ENABLED=true 일 때 NOTIFY_CRON 마다 오늘 보낼 알림 생성 + 이메일 발송)
+    # 9~23시 매시 실행: 9시에 한 번에 만들고, 9시에 서버가 꺼져 있었으면 다음 실행에서 채운다(중복 없음)
+    notify_enabled: bool = False
+    notify_cron: str = "0 9-23 * * *"
+    # "확인 필요" 일정 알림 (정책 6번: 당분간 보내지 않음)
+    notify_review_required: bool = False
+    # 이메일: console(로그만) | smtp | none. Gmail 은 SMTP_USERNAME=주소, SMTP_PASSWORD=앱 비밀번호
+    email_backend: str = "console"
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    email_from: str = ""
+
     # collected_at 이 이 일수 이내면 is_new
     new_event_days: int = 3
     # /api/events 에서 제외하는 기준 (DB 에서 지우지는 않음) — app/services/events.py list_events
     #   마감 후 N일 지남 / 날짜 없는 일정은 수집 후 N일 지남. 캘린더 등록·북마크한 일정은 계속 표시
     event_retention_days: int = 90
     timezone: str = "Asia/Seoul"
+
+    @model_validator(mode="after")
+    def enrichment_model_default(self):
+        if not self.planner_model:
+            self.planner_model = self.openai_model
+        if not self.enrich_model:
+            self.enrich_model = self.openai_model
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

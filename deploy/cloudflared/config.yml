@@ -1,0 +1,8 @@
+tunnel: 9a175838-2094-4ad6-96f3-7939ea108a2c
+credentials-file: /etc/cloudflared/9a175838-2094-4ad6-96f3-7939ea108a2c.json
+ingress:
+  - hostname: notiai.me
+    service: http://caddy:80
+  - hostname: www.notiai.me
+    service: http://caddy:80
+  - service: http_status:404

@@ -1,11 +1,16 @@
 """
 API 요청/응답 형태 — 프론트(jaeyeongt/NotiAi) src/services/*.js 계약에 맞춤.
 """
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.services.user_schedule import ScheduleOverrides
 
 # 프론트 src/config/aiModes.js / sources.js 의 id 와 같아야 함
-AI_MODE_IDS = ("study", "explorer", "balanced")
-DEFAULT_AI_MODE = "study"
+AI_MODE_IDS = ("priority", "discover", "focus")
+DEFAULT_AI_MODE = "priority"
 SOURCE_IDS = ("cbnu", "wevity", "contestkorea")
 
 
@@ -24,17 +29,76 @@ class EventOut(BaseModel):
     bookmarked: bool
     collected_at: str | None
     review_status: str
+    review_reason: str | None = None
+    notice_id: int | None = None
+    event_type: str = 'event'
+    start_time: str = ''
+    end_time: str = ''
+    timezone: str = 'Asia/Seoul'
+    attendance_mode: str = 'unknown'
+    schedule_status: str = 'confirmed'
+    revision: int = 1
+    can_register: bool = False
+    registration_reason: str | None = None
+    sync_status: str = 'none'
+    ai_extracted: bool = False
+    review_required: bool = False
+    action_status: str = 'pending'
+    dismissed: bool = False
+    user_modified: bool = False
 
 
-class Profile(BaseModel):
+class RecommendationProfile(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    major: str = Field(default='', max_length=255, strict=True)
+    grade: int | None = Field(default=None, ge=1, le=6, strict=True)
+    # grade 6: 6년제 학과(약학·의학 등)까지 허용
+    enrollment_status: Literal['enrolled', 'expected_graduation', 'leave', 'graduated', 'unknown'] = 'unknown'
+
+
+class Profile(RecommendationProfile):
     name: str
     email: str
+    is_admin: bool = False
+    onboarding_done: bool = False
+
+
+class OnboardingIn(BaseModel):
+    done: bool = Field(strict=True)
+
+
+class FeedbackIn(BaseModel):
+    type: Literal['inconvenience', 'suggestion', 'praise', 'other']
+    message: str = Field(min_length=1, max_length=2000, strict=True)
+    reply_email: str | None = Field(default=None, max_length=255, strict=True)
+
+    @field_validator('message', mode='before')
+    @classmethod
+    def strip_message(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator('reply_email', mode='before')
+    @classmethod
+    def normalize_email(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            if '@' not in value:
+                raise ValueError('이메일 형식이 올바르지 않습니다.')
+        return value
+
+
+class FeedbackOut(BaseModel):
+    id: int
+    created_at: datetime
 
 
 class Notifications(BaseModel):
-    d7: bool = True
+    # 마감(본행사는 시작) 3일 전 / 1일 전 알림, 이메일로도 받기
     d3: bool = True
-    new_event: bool = False
+    d1: bool = True
+    email: bool = True
 
 
 class Preferences(BaseModel):
@@ -45,7 +109,12 @@ class Preferences(BaseModel):
     auto_mode_recommend: bool = True
 
 
-class RegisterIn(BaseModel):
+class ConfirmationIn(BaseModel):
+    overrides: dict[str, ScheduleOverrides] = Field(default_factory=dict)
+    confirmed: bool = False
+
+
+class RegisterIn(ConfirmationIn):
     event_id: str | int
 
 

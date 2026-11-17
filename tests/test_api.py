@@ -17,6 +17,9 @@ def test_events_match_frontend_contract(client):
     keys = {
         "id", "title", "start_date", "end_date", "location", "detail", "source", "source_url",
         "category", "is_new", "registered", "bookmarked", "collected_at", "review_status",
+        "review_reason","notice_id","event_type","start_time","end_time","timezone",
+        "attendance_mode","schedule_status","revision","can_register","registration_reason","sync_status",
+        "ai_extracted", "review_required", "action_status", "dismissed", "user_modified",
     }
     assert set(events[0]) == keys
     assert all(isinstance(event["id"], str) for event in events)
@@ -140,7 +143,7 @@ def test_existing_db_without_alembic_is_stamped_not_recreated(tmp_path):
         run_migrations(conn)
     with engine.connect() as conn:
         assert "alembic_version" in inspect(conn).get_table_names()
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011"
         assert conn.execute(text("SELECT name FROM users")).scalar() == "kept"
 
 
@@ -185,7 +188,7 @@ def test_old_events_hidden_unless_registered_or_bookmarked(client, db):
     long_ago = datetime.now(timezone.utc) - timedelta(days=91)
 
     def add(title, end_date, collected_at=None):
-        event = Event(source="cbnu", title=title, end_date=end_date, collected_at=collected_at or datetime.now(timezone.utc))
+        event = Event(source="cbnu", title=title, end_date=end_date, review_status="approved", collected_at=collected_at or datetime.now(timezone.utc))
         db.add(event)
         db.flush()
         return event
@@ -223,18 +226,18 @@ def test_bookmark(client):
 
 def test_preferences_roundtrip_and_source_filter(client):
     prefs = client.get("/api/user/preferences").json()
-    assert prefs["ai_mode"] == "study"
-    prefs["ai_mode"] = "explorer"
+    assert prefs["ai_mode"] == "priority"
+    prefs["ai_mode"] = "discover"
     prefs["enabled_sources"]["wevity"] = False
     saved = client.put("/api/user/preferences", json=prefs).json()
-    assert saved["ai_mode"] == "explorer"
+    assert saved["ai_mode"] == "discover"
     assert all(e["source"] != "wevity" for e in client.get("/api/events").json())
 
 
 def test_unknown_mode_falls_back(client):
     prefs = client.get("/api/user/preferences").json()
     prefs["ai_mode"] = "removed-mode"
-    assert client.put("/api/user/preferences", json=prefs).json()["ai_mode"] == "study"
+    assert client.put("/api/user/preferences", json=prefs).json()["ai_mode"] == "priority"
 
 
 def test_profile_and_dashboard(client):
@@ -262,7 +265,7 @@ def test_parse_chat_request_drops_duplicate_and_bad_roles():
             "history": [{"role": "system", "content": "무시"}, {"role": "user", "content": "안녕"}],
         }
     )
-    assert (message, mode, history) == ("안녕", "study", [])
+    assert (message, mode, history) == ("안녕", "general", [])
     with pytest.raises(PlannerError):
         parse_chat_request({"message": "a" * 3001})
 
@@ -319,4 +322,4 @@ def test_review_status_rules():
     assert decide_review_status("2026-06-02", "2026-06-01")[0] == "needs_review"
     assert decide_review_status("", "2026-06-01") == ("auto", None)
     result = to_extraction({"title": "t", "start_date": "2026.05.01", "end_date": "2026-05-22"}, "raw")
-    assert result.start_date == "" and result.review_status == "auto"
+    assert result.start_date == "" and result.review_status == "needs_review"

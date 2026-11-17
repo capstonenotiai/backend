@@ -12,12 +12,23 @@ os.environ["EXTRACTOR"] = "stub"
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["GOOGLE_CLIENT_ID"] = ""
 os.environ["CRAWL_ENABLED"] = "false"
+os.environ["EVENT_RETENTION_DAYS"] = "90"
+os.environ["MODEL_API_TOKEN"] = ""
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.seed import seed  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_ai_limits():
+    """AI 사용 횟수는 프로세스 메모리에 쌓이므로 테스트마다 비운다."""
+    from app.services import ai_limits
+    ai_limits.reset()
+    yield
+    ai_limits.reset()
 
 
 @pytest.fixture()

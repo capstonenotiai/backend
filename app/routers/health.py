@@ -7,6 +7,7 @@ from app.db import get_db
 from app.models import CrawlRun, Event, Notice
 from app.schemas import SOURCE_IDS
 from app.services import google
+from app.services.pipeline import queue_status
 from app.timeutil import now_local, to_local
 
 router = APIRouter(prefix="/api/health", tags=["health"])
@@ -24,6 +25,7 @@ def health(db: Session = Depends(get_db)):
             "notices": db.scalar(select(func.count()).select_from(Notice)),
             "events": db.scalar(select(func.count()).select_from(Event)),
         }
+        body["extraction"] = queue_status(db)
         # 사이트별 최근 수집 결과 (실패 사유 확인용)
         body["crawl"] = {}
         for site in SOURCE_IDS:

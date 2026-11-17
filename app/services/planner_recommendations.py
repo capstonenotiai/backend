@@ -1,0 +1,125 @@
+"""Structured recommendations and a bounded, process-local 30 minute cache."""
+import hashlib
+import json
+import logging
+from copy import deepcopy
+from threading import Lock
+from time import monotonic
+
+from app.config import get_settings
+from app.services import ai_limits, openai_usage, planner_context
+from app.services.planner import PlannerError, reasoning_options
+from app.services.planner_prompts import PLANNER_PROMPT_VERSION, instructions_for, schema_for
+from app.services.planner_validation import validate_output
+
+log = logging.getLogger(__name__)
+CACHE_SECONDS = 30 * 60
+CACHE_MAX_ENTRIES = 256
+_cache = {}
+_cache_lock = Lock()
+REFRESH_SECONDS = 60
+REFRESH_MAX_ENTRIES = 4096
+_refresh_times = {}
+_refresh_lock = Lock()
+
+
+def allow_refresh(user_id, mode):
+    clock = monotonic()
+    key = (user_id, mode)
+    with _refresh_lock:
+        for stale in [entry for entry, timestamp in _refresh_times.items() if clock - timestamp >= REFRESH_SECONDS]:
+            del _refresh_times[stale]
+        if key in _refresh_times or len(_refresh_times) >= REFRESH_MAX_ENTRIES:
+            raise PlannerError('잠시 후 다시 시도해 주세요.', 429)
+        _refresh_times[key] = clock
+
+
+def parse_request(body):
+    mode = body.get('mode') if isinstance(body, dict) else None
+    if not isinstance(mode, str) or mode not in ('priority', 'discover', 'focus'):
+        raise PlannerError('추천 모드는 priority, discover, focus 중 하나여야 합니다.')
+    return mode
+
+
+def create_judgment(payload):
+    settings = get_settings()
+    if not settings.openai_api_key:
+        log.error('[planner/recommendations] OPENAI_API_KEY is not configured')
+        raise PlannerError('AI 플래너 서버 설정이 완료되지 않았습니다.', 500)
+
+    import openai
+
+    try:
+        with openai.OpenAI(api_key=settings.openai_api_key, max_retries=1, timeout=60) as client:
+            response = client.responses.create(
+                model=settings.planner_model,
+                instructions=instructions_for(payload['mode']),
+                input=[{'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}],
+                text={'format': {'type': 'json_schema', 'name': 'planner_' + payload['mode'],
+                                 'strict': True, 'schema': schema_for(payload['mode'])}},
+                store=False, max_output_tokens=settings.planner_max_output_tokens,
+                **reasoning_options(settings.planner_reasoning_effort),
+            )
+        openai_usage.record('recommendation', settings.planner_model, response)
+    except openai.APIStatusError as error:
+        log.error('[planner/recommendations] OpenAI request failed status=%s', error.status_code)
+        if error.status_code == 429:
+            raise PlannerError('요청이 많아 잠시 후 다시 시도해 주세요.', 503) from None
+        raise PlannerError('AI 응답 생성에 실패했습니다.', 502) from None
+    except openai.OpenAIError as error:
+        log.error('[planner/recommendations] OpenAI request failed: %s', type(error).__name__)
+        raise PlannerError('AI 응답 생성에 실패했습니다.', 502) from None
+    if response.status == 'incomplete':
+        details = getattr(response, 'incomplete_details', None)
+        reason = details.get('reason') if isinstance(details, dict) else getattr(details, 'reason', None)
+        # Only SDK reason codes belong in logs, never response content.
+        reason = reason if reason in ('max_output_tokens', 'content_filter') else 'unknown'
+        log.warning('[planner/recommendations] incomplete reason=%s', reason)
+    if response.status != 'completed' or not response.output_text:
+        raise PlannerError('AI 응답 생성에 실패했습니다.', 502)
+    try:
+        return json.loads(response.output_text)
+    except (json.JSONDecodeError, TypeError):
+        # Completed but invalid JSON is repaired using server defaults.
+        return None
+
+
+def recommend(user_id, payload, server_items, now, refresh=False):
+    refresh = refresh is True
+    if refresh:
+        allow_refresh(user_id, payload['mode'])
+    settings = get_settings()
+    snapshot = {'payload': payload, 'server_items': server_items, 'prompt_version': PLANNER_PROMPT_VERSION,
+                'model': settings.planner_model, 'max_output_tokens': settings.planner_max_output_tokens,
+                'reasoning_effort': settings.planner_reasoning_effort}
+    digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+    key = (user_id, payload['mode'], digest)
+    clock = monotonic()
+    with _cache_lock:
+        for stale in [entry for entry, (expires, _) in _cache.items() if expires <= clock]:
+            del _cache[stale]
+        cached = _cache.get(key)
+        if cached and not refresh:
+            return deepcopy(cached[1])
+    if payload['opportunities']:
+        # 캐시에 없어 실제로 OpenAI 를 부를 때만 횟수·전체 예산을 쓴다.
+        ai_limits.take_recommendation(user_id)
+        judgments, corrections = validate_output(payload, create_judgment(payload))
+        if payload['mode'] == 'focus' and planner_context.enforce_comparison_groups(judgments, payload.get('comparison_groups', [])):
+            corrections.append('comparison_group_enforced')
+    else:
+        judgments, corrections = [], []
+    result = {'mode': payload['mode'], 'generated_at': now.isoformat(),
+              'items': [{**item, **server_items[item['opportunity_id']]} for item in judgments],
+              'needs_grouping_check': deepcopy(payload.get('needs_grouping_check', [])), 'corrections': corrections}
+    if payload['mode'] == 'focus':
+        result['comparison_groups'] = deepcopy(payload.get('comparison_groups', []))
+    count = len(result['items'])
+    imminent = sum(isinstance(item.get('days_until_deadline'), int)
+                   and 0 <= item['days_until_deadline'] <= 3 for item in result['items'])
+    result['summary'] = f'추천 활동 {count}개 중 3일 안에 진행할 활동이 {imminent}개 있어요.' if count else '현재 추천할 활동이 없어요.'
+    with _cache_lock:
+        while len(_cache) >= CACHE_MAX_ENTRIES:
+            del _cache[min(_cache, key=lambda entry: _cache[entry][0])]
+        _cache[key] = (monotonic() + CACHE_SECONDS, deepcopy(result))
+    return result
