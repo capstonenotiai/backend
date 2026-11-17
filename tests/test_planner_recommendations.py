@@ -365,7 +365,8 @@ def fake_sdk(monkeypatch, response=None, error=None):
             return response
     monkeypatch.setattr(openai, 'OpenAI', FakeClient)
     monkeypatch.setattr(service, 'get_settings', lambda: SimpleNamespace(
-        openai_api_key='test-placeholder', planner_model='configured-planner', planner_max_output_tokens=4567))
+        openai_api_key='test-placeholder', planner_model='configured-planner', planner_max_output_tokens=4567,
+        planner_reasoning_effort='low'))
     return calls
 
 
@@ -391,6 +392,7 @@ def test_sdk_strict_request_privacy_and_model(client, db, monkeypatch, mode):
         assert secret not in serialized
     assert call['model'] == 'configured-planner' and call['max_output_tokens'] == 4567
     assert call['store'] is False
+    assert call['reasoning'] == {'effort': 'low'}
     assert call['text']['format'] == {'type': 'json_schema', 'name': 'planner_' + mode, 'strict': True, 'schema': schema_for(mode)}
 
 

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     openai_max_output_tokens: int = 800
     planner_model: str = ""
     planner_max_output_tokens: int = 8000
+    # OpenAI reasoning effort (none|low|medium|high, 비우면 모델 기본값). 2026-11-17 측정: 추천 기본 27초 → low 9초, 결과 동일
+    planner_reasoning_effort: str = "low"
+    chat_reasoning_effort: str = "low"
     enrich_model: str = ""
     enrich_max_output_tokens: int = 4000
     enrich_cron: str = "*/30 * * * *"

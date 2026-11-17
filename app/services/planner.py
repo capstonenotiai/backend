@@ -146,6 +146,12 @@ def build_instructions(mode: str, events_context: str) -> str:
     return f"{BASE_PROMPT}\n\n{MODE_PROMPTS[resolve_mode(mode)]}\n\n{events_context}"
 
 
+def reasoning_options(effort: str) -> dict:
+    """설정값이 비어 있으면 모델 기본값을 쓴다."""
+    effort = (effort or '').strip()
+    return {'reasoning': {'effort': effort}} if effort else {}
+
+
 def create_reply(instructions: str, input_messages: list[dict]) -> str:
     settings = get_settings()
     if not settings.openai_api_key:
@@ -162,6 +168,7 @@ def create_reply(instructions: str, input_messages: list[dict]) -> str:
             input=input_messages,
             store=False,
             max_output_tokens=settings.openai_max_output_tokens,
+            **reasoning_options(settings.chat_reasoning_effort),
         )
         openai_usage.record("chat", settings.openai_model, response)
     except openai.APIStatusError as error:

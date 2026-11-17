@@ -8,7 +8,7 @@ from time import monotonic
 
 from app.config import get_settings
 from app.services import openai_usage
-from app.services.planner import PlannerError
+from app.services.planner import PlannerError, reasoning_options
 from app.services.planner_prompts import PLANNER_PROMPT_VERSION, instructions_for, schema_for
 from app.services.planner_validation import validate_output
 
@@ -58,6 +58,7 @@ def create_judgment(payload):
                 text={'format': {'type': 'json_schema', 'name': 'planner_' + payload['mode'],
                                  'strict': True, 'schema': schema_for(payload['mode'])}},
                 store=False, max_output_tokens=settings.planner_max_output_tokens,
+                **reasoning_options(settings.planner_reasoning_effort),
             )
         openai_usage.record('recommendation', settings.planner_model, response)
     except openai.APIStatusError as error:
@@ -89,7 +90,8 @@ def recommend(user_id, payload, server_items, now, refresh=False):
         allow_refresh(user_id, payload['mode'])
     settings = get_settings()
     snapshot = {'payload': payload, 'server_items': server_items, 'prompt_version': PLANNER_PROMPT_VERSION,
-                'model': settings.planner_model, 'max_output_tokens': settings.planner_max_output_tokens}
+                'model': settings.planner_model, 'max_output_tokens': settings.planner_max_output_tokens,
+                'reasoning_effort': settings.planner_reasoning_effort}
     digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
     key = (user_id, payload['mode'], digest)
     clock = monotonic()

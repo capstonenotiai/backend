@@ -6,6 +6,8 @@ Google 권한(refresh token)이 없는 사용자는:
   - 그 외         : 400
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor
+
 import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -66,26 +68,51 @@ def _register_targets(db, user, targets, confirmation=None):
             raise HTTPException(400, f'함께 등록할 일정 확인이 필요합니다: {error}')
         prepared.append((event, state, effective, overrides))
     skip = _can_skip_google(user)
-    for event, state, effective, overrides in prepared:
-        changed = (state.overrides or {}) != overrides
-        if state.registered and not changed and state.sync_status == 'synced':
+    pending = [(event, state, effective, overrides) for event, state, effective, overrides in prepared
+               if not (state.registered and (state.overrides or {}) == overrides and state.sync_status == 'synced')]
+
+    def write(item):
+        _, state, effective, _ = item
+        if skip:
+            return state.google_event_id
+        if state.registered and state.google_event_id:
+            google.update_event(user.google_refresh_token, state.google_event_id, effective)
+            return state.google_event_id
+        return google.insert_event(user.google_refresh_token, effective)
+
+    # Google 호출만 병렬로 보내고, DB 세션은 이 스레드에서만 만진다.
+    results = _run_parallel(write, pending)
+    failed = False
+    for (event, state, _, overrides), (ok, value) in zip(pending, results):
+        if not ok:
+            failed = True
             continue
-        try:
-            if not skip:
-                if state.registered and state.google_event_id:
-                    google.update_event(user.google_refresh_token, state.google_event_id, effective)
-                else:
-                    state.google_event_id = google.insert_event(user.google_refresh_token, effective)
-        except (google.GoogleError, httpx.HTTPError):
-            db.rollback()
-            # Successful siblings are committed; a retry skips them instead of duplicating them.
-            raise HTTPException(502, '일부 일정 등록에 실패했습니다. 이미 등록한 일정은 유지됩니다. 다시 시도해 주세요.') from None
+        state.google_event_id = value
         state.registered = True
         state.overrides = overrides or None
         state.synced_revision = event.revision
         state.sync_status = 'synced'
         state.sync_error = None
-        db.commit()
+    # Successful siblings are committed; a retry skips them instead of duplicating them.
+    db.commit()
+    if failed:
+        raise HTTPException(502, '일부 일정 등록에 실패했습니다. 이미 등록한 일정은 유지됩니다. 다시 시도해 주세요.')
+
+
+_GOOGLE_PARALLEL = 4
+
+
+def _run_parallel(func, items):
+    """Google 호출을 동시에 실행해 [(성공 여부, 값)] 을 입력 순서대로 돌려준다."""
+    def guarded(item):
+        try:
+            return True, func(item)
+        except (google.GoogleError, httpx.HTTPError):
+            return False, None
+    if len(items) <= 1:
+        return [guarded(item) for item in items]
+    with ThreadPoolExecutor(max_workers=min(_GOOGLE_PARALLEL, len(items))) as pool:
+        return list(pool.map(guarded, items))
 
 
 @router.get('/events')
@@ -108,19 +135,25 @@ def unregister(event_id: str, user: User = Depends(get_current_user), db: Sessio
     event = get_event_or_404(db, event_id)
     targets = [event] if event.event_type == 'interview' else [
         e for e in notice_events(db, event) if e.event_type != 'interview' and e.event_type not in HIDDEN_TYPES]
-    for target in targets:
-        state = get_user_event(db, user, target)
+    states = [get_user_event(db, user, target) for target in targets]
+
+    def remove(state):
         if state.google_event_id and user.google_refresh_token:
-            try:
-                google.delete_event(user.google_refresh_token, state.google_event_id)
-            except (google.GoogleError, httpx.HTTPError):
-                db.rollback()
-                raise HTTPException(502, '일부 일정 해제에 실패했습니다. 다시 시도해 주세요.') from None
+            google.delete_event(user.google_refresh_token, state.google_event_id)
+
+    results = _run_parallel(remove, states)
+    failed = False
+    for state, (ok, _) in zip(states, results):
+        if not ok:
+            failed = True
+            continue
         state.registered = False
         state.google_event_id = None
         state.sync_status='none'
         state.sync_error=None
-        db.commit()
+    db.commit()
+    if failed:
+        raise HTTPException(502, '일부 일정 해제에 실패했습니다. 다시 시도해 주세요.')
     return RegisterOut(id=str(event.id), registered=False)
 
 
