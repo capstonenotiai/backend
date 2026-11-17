@@ -14,7 +14,7 @@ from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import User
-from app.services import planner, planner_context, planner_recommendations, preferences
+from app.services import ai_limits, planner, planner_context, planner_recommendations, preferences
 from app.services.events import list_events
 from app.timeutil import now_local, today_local
 
@@ -65,8 +65,10 @@ async def chat(request: Request, user: User = Depends(get_current_user), db: Ses
     if isinstance(prepared, JSONResponse):
         return prepared
     try:
-        # OpenAI 호출은 동기 SDK → 이벤트 루프를 막지 않도록 스레드에서 실행
-        reply = await run_in_threadpool(planner.create_reply, *prepared)
+        await run_in_threadpool(ai_limits.take_chat, user.id)
+        with ai_limits.single_chat(user.id):
+            # OpenAI 호출은 동기 SDK → 이벤트 루프를 막지 않도록 스레드에서 실행
+            reply = await run_in_threadpool(planner.create_reply, *prepared)
     except planner.PlannerError as error:
         return JSONResponse({"message": error.message}, status_code=error.status)
 
@@ -85,11 +87,18 @@ async def chat_stream(request: Request, user: User = Depends(get_current_user), 
     prepared = await _chat_input(request, user, db)
     if isinstance(prepared, JSONResponse):
         return prepared
+    try:
+        # 횟수·전체 예산 초과는 스트림을 열기 전에 JSON 429/503 으로 알린다.
+        await run_in_threadpool(ai_limits.take_chat, user.id)
+    except planner.PlannerError as error:
+        return JSONResponse({"message": error.message}, status_code=error.status)
+    user_id = user.id
 
     def events():
         try:
-            for kind, value in planner.stream_reply(*prepared):
-                yield _sse("delta", {"text": value}) if kind == "delta" else _sse("done", {"reply": value})
+            with ai_limits.single_chat(user_id):
+                for kind, value in planner.stream_reply(*prepared):
+                    yield _sse("delta", {"text": value}) if kind == "delta" else _sse("done", {"reply": value})
         except planner.PlannerError as error:
             yield _sse("error", {"message": error.message, "status": error.status})
 

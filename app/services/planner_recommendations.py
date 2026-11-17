@@ -7,7 +7,7 @@ from threading import Lock
 from time import monotonic
 
 from app.config import get_settings
-from app.services import openai_usage
+from app.services import ai_limits, openai_usage
 from app.services.planner import PlannerError, reasoning_options
 from app.services.planner_prompts import PLANNER_PROMPT_VERSION, instructions_for, schema_for
 from app.services.planner_validation import validate_output
@@ -102,6 +102,8 @@ def recommend(user_id, payload, server_items, now, refresh=False):
         if cached and not refresh:
             return deepcopy(cached[1])
     if payload['opportunities']:
+        # 캐시에 없어 실제로 OpenAI 를 부를 때만 횟수·전체 예산을 쓴다.
+        ai_limits.take_recommendation(user_id)
         judgments, corrections = validate_output(payload, create_judgment(payload))
     else:
         judgments, corrections = [], []

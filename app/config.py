@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # OpenAI reasoning effort (none|low|medium|high, 비우면 모델 기본값). 2026-11-17 측정: 추천 기본 27초 → low 9초, 결과 동일
     planner_reasoning_effort: str = "low"
     chat_reasoning_effort: str = "low"
+    # AI 사용 제한 (app/services/ai_limits.py). 0 이면 해당 제한을 끈다.
+    chat_per_minute: int = 6
+    chat_per_day: int = 60
+    recommend_per_day: int = 30
+    ai_daily_token_budget: int = 10_000_000
     enrich_model: str = ""
     enrich_max_output_tokens: int = 4000
     enrich_cron: str = "*/30 * * * *"
