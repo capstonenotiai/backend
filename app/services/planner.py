@@ -152,6 +152,59 @@ def reasoning_options(effort: str) -> dict:
     return {'reasoning': {'effort': effort}} if effort else {}
 
 
+def stream_reply(instructions: str, input_messages: list[dict]):
+    """채팅 답변을 생성되는 대로 ('delta', 조각) 로 내보내고, 끝나면 ('done', 전체 답변) 을 낸다.
+
+    OpenAI 오류·빈 답변은 PlannerError 로 알린다(이미 보낸 조각이 있어도 마찬가지).
+    """
+    settings = get_settings()
+    if not settings.openai_api_key:
+        log.error("[planner/chat] OPENAI_API_KEY is not configured")
+        raise PlannerError("AI 플래너 서버 설정이 완료되지 않았습니다.", 500)
+
+    import openai
+
+    client = openai.OpenAI(api_key=settings.openai_api_key, max_retries=1, timeout=25)
+    parts: list[str] = []
+    final = None
+    try:
+        stream = client.responses.create(
+            model=settings.openai_model,
+            instructions=instructions,
+            input=input_messages,
+            store=False,
+            max_output_tokens=settings.openai_max_output_tokens,
+            stream=True,
+            **reasoning_options(settings.chat_reasoning_effort),
+        )
+        for event in stream:
+            kind = getattr(event, "type", "")
+            if kind == "response.output_text.delta":
+                delta = getattr(event, "delta", "") or ""
+                if delta:
+                    parts.append(delta)
+                    yield "delta", delta
+            elif kind in ("response.completed", "response.incomplete"):
+                final = getattr(event, "response", None)
+            elif kind in ("response.failed", "error"):
+                log.error("[planner/chat] OpenAI stream failed: %s", kind)
+                raise PlannerError("AI 응답 생성에 실패했습니다.", 502)
+    except openai.APIStatusError as error:
+        log.error("[planner/chat] OpenAI request failed status=%s", error.status_code)
+        if error.status_code == 429:
+            raise PlannerError("요청이 많아 잠시 후 다시 시도해 주세요.", 503) from None
+        raise PlannerError("AI 응답 생성에 실패했습니다.", 502) from None
+    except openai.OpenAIError as error:
+        log.error("[planner/chat] OpenAI request failed: %s", type(error).__name__)
+        raise PlannerError("AI 응답 생성에 실패했습니다.", 502) from None
+    if final is not None:
+        openai_usage.record("chat", settings.openai_model, final)
+    text = "".join(parts).strip()
+    if not text:
+        raise PlannerError("AI 응답 생성에 실패했습니다.", 502)
+    yield "done", text
+
+
 def create_reply(instructions: str, input_messages: list[dict]) -> str:
     settings = get_settings()
     if not settings.openai_api_key:

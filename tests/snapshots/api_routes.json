@@ -133,6 +133,10 @@
   ],
   [
     "POST",
+    "/api/planner/chat/stream"
+  ],
+  [
+    "POST",
     "/api/planner/recommendations"
   ],
   [
