@@ -50,15 +50,52 @@ def test_login_without_calendar_then_connect_and_register(google_on, monkeypatch
     _login(google_on, monkeypatch)
     assert google_on.get('/api/user').json()['calendar_connected'] is False
     event = next(e for e in google_on.get('/api/events').json() if not e['registered'] and not e.get('review_required'))
-    blocked = google_on.post('/api/calendar/register', json={'event_id': event['id']})
-    assert blocked.status_code == 409 and blocked.headers['x-notiai-reason'] == 'calendar_not_connected'
+    # '나중에': Google 없이 NotiAI 안에만 등록된다.
+    monkeypatch.setattr(google, 'insert_event', lambda *args: pytest.fail('미연결 상태에서는 Google 을 부르지 않는다'))
+    assert google_on.post('/api/calendar/register', json={'event_id': event['id']}).status_code == 200
+    local = {e['id']: e for e in google_on.get('/api/calendar/events').json()}
+    assert local and all(e['sync_status'] == 'local' for e in local.values())
+    # 날짜를 고쳐도 Google 반영 대기(needs_sync)로 바뀌지 않는다.
+    google_on.patch(f"/api/events/{event['id']}/overrides", json={'location': '새 장소'})
+    assert google_on.get('/api/calendar/events').json()[0]['sync_status'] == 'local'
 
+    inserted = []
+    monkeypatch.setattr(google, 'insert_event', lambda token, effective: inserted.append(token) or f'g{len(inserted)}')
     start, done = _connect(google_on, monkeypatch, {'access_token': 'a', 'refresh_token': 'r1', 'scope': f'openid email {CAL}'})
     params = _query(start)
     assert CAL in params['scope'] and params['access_type'] == 'offline' and params['login_hint'] == 'student@example.com'
     assert done.headers['location'] == get_settings().frontend_url.rstrip('/') + '/schedules?tab=all&calendar=connected'
     assert db.query(User).filter_by(google_sub='sub-1').one().google_refresh_token == 'r1'
     assert google_on.get('/api/user').json()['calendar_connected'] is True
+    # 연결하면 NotiAI 안에만 있던 일정을 Google 캘린더로 옮긴다.
+    assert inserted == ['r1'] * len(local)
+    assert all(e['sync_status'] == 'synced' for e in google_on.get('/api/calendar/events').json())
+
+
+def test_failed_push_can_be_retried_with_sync(google_on, monkeypatch, db):
+    _login(google_on, monkeypatch)
+    event = next(e for e in google_on.get('/api/events').json() if not e['registered'] and not e.get('review_required'))
+    google_on.post('/api/calendar/register', json={'event_id': event['id']})
+
+    def boom(*args):
+        raise google.GoogleError('down')
+    monkeypatch.setattr(google, 'insert_event', boom)
+    _connect(google_on, monkeypatch, {'access_token': 'a', 'refresh_token': 'r1', 'scope': CAL})
+    failed = google_on.get('/api/calendar/events').json()
+    assert failed and all(e['sync_status'] == 'failed' for e in failed)
+    monkeypatch.setattr(google, 'insert_event', lambda *args: 'g-retry')
+    for item in failed:
+        assert google_on.post(f"/api/calendar/sync/{item['id']}").status_code == 200
+    assert all(e['sync_status'] == 'synced' for e in google_on.get('/api/calendar/events').json())
+
+
+def test_unregister_local_only_never_calls_google(google_on, monkeypatch):
+    _login(google_on, monkeypatch)
+    event = next(e for e in google_on.get('/api/events').json() if not e['registered'] and not e.get('review_required'))
+    google_on.post('/api/calendar/register', json={'event_id': event['id']})
+    monkeypatch.setattr(google, 'delete_event', lambda *args: pytest.fail('Google 일정이 없다'))
+    assert google_on.delete(f"/api/calendar/register/{event['id']}").json()['registered'] is False
+    assert google_on.get('/api/calendar/events').json() == []
 
 
 def test_relogin_keeps_calendar_token(google_on, monkeypatch, db):

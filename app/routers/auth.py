@@ -92,6 +92,12 @@ def _calendar_callback(request: Request, db: Session, code: str | None, frontend
         return back("failed")
     user.google_refresh_token = tokens["refresh_token"]
     db.commit()
+    from app.routers.calendar import push_local_registrations
+    try:
+        push_local_registrations(db, user)
+    except Exception:  # 연결 자체는 성공. 옮기지 못한 일정은 failed 로 남아 다시 반영할 수 있다.
+        log.exception("push local registrations failed")
+        db.rollback()
     return back("connected")
 
 

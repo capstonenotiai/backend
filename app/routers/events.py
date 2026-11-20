@@ -45,7 +45,7 @@ def edit_schedule(event_id: str, body: ScheduleOverrides,
     event = get_event_or_404(db, event_id)
     state = get_user_event(db, user, event)
     state.overrides = validate_overrides(event, state, body.model_dump(exclude_unset=True))
-    if state.registered:
+    if state.registered and state.sync_status != 'local':  # NotiAI 안에만 등록된 일정은 Google 반영이 필요 없다
         state.sync_status = 'needs_sync'
     db.commit()
     from app.services.events import to_event_out
