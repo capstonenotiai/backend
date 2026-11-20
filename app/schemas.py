@@ -61,6 +61,7 @@ class Profile(RecommendationProfile):
     email: str
     is_admin: bool = False
     onboarding_done: bool = False
+    calendar_connected: bool = False
 
 
 class OnboardingIn(BaseModel):

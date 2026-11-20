@@ -67,6 +67,7 @@
     "notice_id"
   ],
   "GET /api/user": [
+    "calendar_connected",
     "email",
     "enrollment_status",
     "grade",
@@ -124,6 +125,7 @@
     }
   },
   "PUT /api/user/profile": [
+    "calendar_connected",
     "email",
     "enrollment_status",
     "grade",
@@ -133,6 +135,7 @@
     "onboarding_done"
   ],
   "PUT /api/user/onboarding": [
+    "calendar_connected",
     "email",
     "enrollment_status",
     "grade",

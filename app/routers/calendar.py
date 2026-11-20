@@ -33,7 +33,9 @@ def _can_skip_google(user: User) -> bool:
         return False
     if get_settings().dev_login:
         return True
-    raise HTTPException(status_code=400, detail="Google 캘린더 권한이 없습니다. 다시 로그인해 주세요.")
+    # 프론트는 이 코드를 보고 캘린더 연결 안내 창을 연다.
+    raise HTTPException(status_code=409, detail="Google 캘린더 연결이 필요해요.",
+                        headers={"X-NotiAI-Reason": "calendar_not_connected"})
 
 
 @router.post("/register", response_model=RegisterOut)

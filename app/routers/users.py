@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user, is_admin
 from app.models import User
@@ -15,7 +16,9 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
     pref = preferences.get_or_create_preference(db, user)
     return Profile(name=user.name, email=user.email, is_admin=is_admin(user),
         major=pref.major, grade=pref.grade, enrollment_status=pref.enrollment_status,
-        onboarding_done=user.onboarding_done)
+        onboarding_done=user.onboarding_done,
+        # 개발 모드는 Google 없이 등록되므로 연결된 것으로 본다.
+        calendar_connected=bool(user.google_refresh_token) or get_settings().dev_login)
 
 
 @router.put('/onboarding', response_model=Profile)

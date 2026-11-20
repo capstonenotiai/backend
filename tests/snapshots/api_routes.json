@@ -25,6 +25,10 @@
   ],
   [
     "GET",
+    "/api/auth/google/calendar"
+  ],
+  [
+    "GET",
     "/api/auth/google/callback"
   ],
   [
