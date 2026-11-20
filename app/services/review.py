@@ -154,7 +154,8 @@ def apply_review(db, notice_id, payload, actor):
             event.revision+=1
     affected = set(existing) | kept
     if affected:
-        db.execute(update(UserEvent).where(UserEvent.event_id.in_(affected),UserEvent.registered.is_(True))
+        db.execute(update(UserEvent).where(UserEvent.event_id.in_(affected),UserEvent.registered.is_(True),
+                                             UserEvent.sync_status != 'local')
                    .values(sync_status='needs_sync',sync_error=None))
     notice.extraction_state = {'save':'needs_review','approve':'approved','reject':'rejected'}[payload.action]
     db.flush()

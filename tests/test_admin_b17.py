@@ -188,7 +188,7 @@ def test_0011_migration_roundtrip_and_existing_schema(tmp_path):
         assert not {'resolved_at', 'resolved_by'} & {c['name'] for c in inspect(conn).get_columns('event_reports')}
         assert conn.execute(text('SELECT count(*) FROM event_reports')).scalar() == 1
         run_migrations(conn)
-        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0011'
+        assert conn.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0012'
     engine.dispose()
 
 

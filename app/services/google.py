@@ -1,8 +1,9 @@
 """
 Google OAuth 2.0 + Google Calendar API (REST 직접 호출).
 
-로그인할 때 calendar.events 권한까지 한 번에 받고, refresh token 을 users 테이블에 저장해
-캘린더 등록/삭제 때 access token 을 만료 전까지 메모리에서 재사용한다.
+로그인은 이메일·프로필만 받는다(민감한 권한이 없어 "확인하지 않은 앱" 경고가 뜨지 않음).
+calendar.events 권한은 처음 일정을 등록할 때 따로 받고(build_auth_url(calendar=True)),
+그때 받은 refresh token 을 users 테이블에 저장해 access token 을 만료 전까지 메모리에서 재사용한다.
 """
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -21,7 +22,8 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-SCOPES = "openid email profile https://www.googleapis.com/auth/calendar.events"
+LOGIN_SCOPES = "openid email profile"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
 _TOKEN_CACHE_LIMIT = 4096
 _token_cache: dict[str, tuple[str, float]] = {}
@@ -54,19 +56,32 @@ def is_configured() -> bool:
     return bool(settings.google_client_id and settings.google_client_secret)
 
 
-def build_auth_url(state: str) -> str:
+def build_auth_url(state: str, calendar: bool = False, login_hint: str | None = None) -> str:
     settings = get_settings()
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": settings.google_redirect_uri,
         "response_type": "code",
-        "scope": SCOPES,
         "state": state,
-        "access_type": "offline",  # refresh token 발급
-        "prompt": "consent",  # 재로그인 때도 refresh token 을 다시 받기 위해
         "include_granted_scopes": "true",
     }
+    if calendar:
+        params.update(
+            scope=f"openid email {CALENDAR_SCOPE}",
+            access_type="offline",  # refresh token 발급
+            prompt="consent",  # 다시 연결할 때도 refresh token 을 다시 받기 위해
+        )
+        if login_hint:
+            params["login_hint"] = login_hint
+    else:
+        # refresh token 을 받지 않으므로 기존 캘린더 토큰을 덮어쓰지 않는다.
+        params.update(scope=LOGIN_SCOPES, prompt="select_account")
     return f"{AUTH_URL}?{urlencode(params)}"
+
+
+def has_calendar_scope(tokens: dict) -> bool:
+    """사용자가 동의 화면에서 캘린더 항목을 실제로 허용했는지 (Google 세부 동의는 일부만 허용할 수 있다)."""
+    return CALENDAR_SCOPE in str(tokens.get("scope", "")).split()
 
 
 def _post_token(data: dict) -> dict:

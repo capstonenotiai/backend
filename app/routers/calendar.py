@@ -1,9 +1,10 @@
 """
 Google Calendar 등록 / 해제 — 프론트 services/calendarService.js 계약.
 
-Google 권한(refresh token)이 없는 사용자는:
-  - DEV_LOGIN=true : DB 의 registered 값만 바꾼다 (OAuth 설정 전 화면 테스트용)
-  - 그 외         : 400
+Google 캘린더 권한(refresh token)이 없는 사용자는:
+  - DEV_LOGIN=true : DB 의 registered 값만 바꾼다 (OAuth 설정 전 화면 테스트용, sync_status=synced)
+  - 그 외         : NotiAI 안에만 등록한다 (sync_status=local). 나중에 캘린더를 연결하면
+                    push_local_registrations 가 Google 캘린더로 옮긴다.
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -28,12 +29,50 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
 
+LOCAL = 'local'  # NotiAI 안에만 등록됨 (Google 캘린더 미연결)
+
+
 def _can_skip_google(user: User) -> bool:
-    if user.google_refresh_token:
-        return False
-    if get_settings().dev_login:
-        return True
-    raise HTTPException(status_code=400, detail="Google 캘린더 권한이 없습니다. 다시 로그인해 주세요.")
+    return not user.google_refresh_token
+
+
+def _skipped_status() -> str:
+    return 'synced' if get_settings().dev_login else LOCAL
+
+
+def push_local_registrations(db: Session, user: User) -> int:
+    """캘린더를 연결한 직후: NotiAI 안에만 등록해 둔 일정을 Google 캘린더에 넣는다. 넣은 개수를 돌려준다.
+    실패한 일정은 failed 로 남겨 화면의 '다시 반영'(sync)으로 다시 넣을 수 있게 한다."""
+    from app.models import UserEvent, Event
+    from sqlalchemy import select
+    if not user.google_refresh_token:
+        return 0
+    states = db.scalars(select(UserEvent).where(UserEvent.user_id == user.id, UserEvent.registered.is_(True),
+                                                UserEvent.sync_status == LOCAL)).all()
+    items = []
+    for state in states:
+        event = db.get(Event, state.event_id)
+        if event is None or event.review_status not in ('auto', 'approved') or event.schedule_status == 'cancelled' \
+                or service_excluded(event):
+            state.sync_status = 'needs_sync'  # sync 가 등록 해제로 정리한다
+            continue
+        effective = effective_event(event, overrides=state.overrides or {})
+        if registration_error(effective):
+            state.sync_status = 'failed'
+            state.sync_error = 'Google 캘린더 반영 실패. 날짜를 확인한 뒤 다시 시도해 주세요.'
+            continue
+        items.append((event, state, effective))
+    results = _run_parallel(lambda item: google.insert_event(user.google_refresh_token, item[2]), items)
+    pushed = 0
+    for (event, state, _), (ok, value) in zip(items, results):
+        if ok:
+            state.google_event_id, state.sync_status, state.sync_error = value, 'synced', None
+            state.synced_revision = event.revision
+            pushed += 1
+        else:
+            state.sync_status, state.sync_error = 'failed', 'Google 캘린더 반영 실패. 다시 시도해 주세요.'
+    db.commit()
+    return pushed
 
 
 @router.post("/register", response_model=RegisterOut)
@@ -69,7 +108,8 @@ def _register_targets(db, user, targets, confirmation=None):
         prepared.append((event, state, effective, overrides))
     skip = _can_skip_google(user)
     pending = [(event, state, effective, overrides) for event, state, effective, overrides in prepared
-               if not (state.registered and (state.overrides or {}) == overrides and state.sync_status == 'synced')]
+               if not (state.registered and (state.overrides or {}) == overrides
+                       and state.sync_status == (_skipped_status() if skip else 'synced'))]
 
     def write(item):
         _, state, effective, _ = item
@@ -91,7 +131,7 @@ def _register_targets(db, user, targets, confirmation=None):
         state.registered = True
         state.overrides = overrides or None
         state.synced_revision = event.revision
-        state.sync_status = 'synced'
+        state.sync_status = _skipped_status() if skip else 'synced'
         state.sync_error = None
     # Successful siblings are committed; a retry skips them instead of duplicating them.
     db.commit()
@@ -169,10 +209,13 @@ def sync(event_id: str,user: User = Depends(get_current_user),db: Session = Depe
     if error and not remove: raise HTTPException(400,error)
     try:
         skip=_can_skip_google(user)
+        if skip and state.sync_status == LOCAL and not remove:
+            raise HTTPException(400, 'Google 캘린더가 연결되지 않았어요. 설정에서 연결해 주세요.')
         if not skip:
-            if not state.google_event_id: raise google.GoogleError('기존 Google 일정 ID 없음: 해제 후 재등록 필요')
-            if remove: google.delete_event(user.google_refresh_token,state.google_event_id)
-            else: google.update_event(user.google_refresh_token,state.google_event_id,effective)
+            if remove:
+                if state.google_event_id: google.delete_event(user.google_refresh_token,state.google_event_id)
+            elif state.google_event_id: google.update_event(user.google_refresh_token,state.google_event_id,effective)
+            else: state.google_event_id = google.insert_event(user.google_refresh_token,effective)  # 연결 때 옮기지 못한 일정
     except (google.GoogleError,httpx.HTTPError) as exc:
         state.sync_status='failed'
         state.sync_error='Google 캘린더 반영 실패. 다시 시도해 주세요.'
@@ -181,7 +224,8 @@ def sync(event_id: str,user: User = Depends(get_current_user),db: Session = Depe
     # Re-read revision after external I/O; never mark a newer edit as synced.
     db.refresh(event)
     state.synced_revision=revision
-    state.sync_status='needs_sync' if event.revision!=revision else ('none' if remove else 'synced')
+    synced = _skipped_status() if skip else 'synced'
+    state.sync_status='needs_sync' if event.revision!=revision and not skip else ('none' if remove else synced)
     state.sync_error=None
     if remove:
         state.registered=False
